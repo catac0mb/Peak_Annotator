@@ -1024,6 +1024,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
   const onTutWheelRef = useRef(onTutWheel);
   useEffect(() => { onTutWheelRef.current = onTutWheel; }, [onTutWheel]);
   const onTutPointerDown = useCallback(e => {
+    if (tutDragRef.current?.type === 'handle') return;
     let el = e.target;
     while (el && el !== e.currentTarget) {
       const track = el.dataset?.track;
@@ -2684,6 +2685,10 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
   }, [domain, fxInv, xMax, xMin]);
 
   const fOnSvgPointerDown = useCallback(e => {
+    // Never overwrite an active handle drag — stopPropagation should prevent
+    // this, but guard here too in case of SVG event bubbling edge cases.
+    if (dragStateRef.current?.type === 'handle') return;
+
     let el = e.target;
     while (el && el !== e.currentTarget) {
       const track = el.dataset?.track;
