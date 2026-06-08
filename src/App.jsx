@@ -2092,12 +2092,12 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
     return displayData.filter((_, i) => i % step === 0).map((p, i) => `${i === 0 ? 'M' : 'L'}${ctxXScale(p[0]).toFixed(1)},${ctxYScale(p[1]).toFixed(1)}`).join(' ');
   }, [displayData, ctxXScale, ctxYScale]);
 
-  const getSvgX = useCallback(e => { const r = svgRef.current?.getBoundingClientRect(); return r ? e.clientX - r.left : 0; }, []);
+  const getSvgX = useCallback(e => { const r = svgRef.current?.getBoundingClientRect(); return r ? (e.clientX - r.left) * (W / r.width) : 0; }, []);
 
   const onWheel = useCallback(e => {
     e.preventDefault();
     const r = svgRef.current?.getBoundingClientRect(); if (!r) return;
-    const anchor = xInv(e.clientX - r.left);
+    const anchor = xInv((e.clientX - r.left) * (W / r.width));
     const factor = e.deltaY > 0 ? 0.82 : 1.22;
     const w = domain[1] - domain[0], nw = Math.max(0.1, Math.min(xMax - xMin, w / factor));
     const a0 = (anchor - domain[0]) / w;
@@ -2114,7 +2114,9 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
   const onSvgPointerMove = useCallback(e => {
     const d = dragStateRef.current; if (!d) return;
     if (d.type === 'pan') {
-      const dx = e.clientX - d.startX, dD = -(dx / plotW) * (d.startDomain[1] - d.startDomain[0]);
+      const r = svgRef.current?.getBoundingClientRect();
+      const scale = r ? W / r.width : 1;
+      const dx = (e.clientX - d.startX) * scale, dD = -(dx / plotW) * (d.startDomain[1] - d.startDomain[0]);
       let a = d.startDomain[0] + dD, b = d.startDomain[1] + dD; const w = b - a;
       if (a < xMin) { a = xMin; b = a + w; } if (b > xMax) { b = xMax; a = b - w; }
       setDomain([a, b]);
