@@ -985,12 +985,24 @@ function TutorialScreen({ vizMode, onDismiss }) {
     return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${txScale(p[0]).toFixed(1)},${tyScale(p[1]).toFixed(1)}`).join(' ');
   }, [tutData, tutDomain, txScale, tyScale]);
 
-  // Convert a pointer clientX to SVG viewBox x-coordinate, accounting for
-  // the viewBox scaling (SVG is 1100px wide in viewBox but narrower on screen).
+  // getSvgX must apply viewBox→CSS scale so handle drags track the cursor.
   const getSvgX = useCallback(e => {
     const r = tutSvgRef.current?.getBoundingClientRect();
     if (!r) return 0;
     return (e.clientX - r.left) * (TW / r.width);
+  }, []);
+
+  // Callback ref attaches wheel listener the moment the tutorial SVG mounts.
+  const tutWheelHandlerRef = useRef(null);
+  const tutSvgCallbackRef = useCallback(el => {
+    if (tutWheelHandlerRef.current && tutSvgRef.current) {
+      tutSvgRef.current.removeEventListener('wheel', tutWheelHandlerRef.current);
+    }
+    tutSvgRef.current = el;
+    if (!el) return;
+    const handler = (e) => onTutWheelRef.current(e);
+    tutWheelHandlerRef.current = handler;
+    el.addEventListener('wheel', handler, { passive: false });
   }, []);
 
   const onTutWheel = useCallback(e => {
@@ -1011,14 +1023,6 @@ function TutorialScreen({ vizMode, onDismiss }) {
   // works immediately without requiring a click first.
   const onTutWheelRef = useRef(onTutWheel);
   useEffect(() => { onTutWheelRef.current = onTutWheel; }, [onTutWheel]);
-  useEffect(() => {
-    const el = tutSvgRef.current;
-    if (!el) return;
-    const handler = (e) => onTutWheelRef.current(e);
-    el.addEventListener('wheel', handler, { passive: false });
-    return () => el.removeEventListener('wheel', handler);
-  }, []); // registers once
-
   const onTutPointerDown = useCallback(e => {
     let el = e.target;
     while (el && el !== e.currentTarget) {
@@ -1456,7 +1460,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
         <>
           <div style={{ padding: "12px 20px 0" }}>
             <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", overflow: "hidden" }}>
-              <svg ref={tutSvgRef} viewBox={`0 0 ${TW} ${TH}`} width="100%" height={TH}
+              <svg ref={tutSvgCallbackRef} viewBox={`0 0 ${TW} ${TH}`} width="100%" height={TH}
                 style={{ display: "block", cursor: "grab", touchAction: "none", userSelect: "none" }}
                 onPointerDown={onTutPointerDown} onPointerMove={onTutPointerMove}
                 onPointerUp={onTutPointerUp} onPointerLeave={onTutPointerUp}>
@@ -1518,8 +1522,12 @@ function TutorialScreen({ vizMode, onDismiss }) {
                     <g key={`fill${pk.id}`} style={{ cursor: "pointer", pointerEvents: "auto" }}
                       onPointerEnter={() => setTutHoveredId(pk.id)} onPointerLeave={() => setTutHoveredId(null)}
                       onClick={e => { e.stopPropagation(); setTutSelectedId(pk.id === tutSelectedId ? null : pk.id); setHasSelectedPeak(true); }}>
-                      <path d={areaPath} fill="rgba(30,64,175,0.18)"
-                        stroke={sel ? "rgba(30,64,175,0.7)" : "rgba(30,64,175,0.35)"} strokeWidth={sel ? 1.5 : 1}
+                      <path d={areaPath}
+                        fill="rgba(30,64,175,0.18)"
+                        fillOpacity={1}
+                        stroke={sel ? "#1e40af" : "rgba(30,64,175,0.4)"}
+                        strokeWidth={sel ? 1.5 : 1}
+                        opacity={1}
                         style={{ pointerEvents: "visible" }} />
                     </g>
                   );
@@ -1573,7 +1581,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
                       </g>
                     ) : showConf && isUserPk ? (
                       <g style={{ cursor: "pointer", pointerEvents: "auto" }}
-                        onClick={e => { e.stopPropagation(); setTutSelectedId(pk.id === tutSelectedId ? null : pk.id); }}>
+                        onClick={e => { e.stopPropagation(); setTutSelectedId(pk.id === tutSelectedId ? null : pk.id); setHasSelectedPeak(true); }}>
                         <rect x={aPx - 14} y={iconY - 10} width={28} height={20} rx={10}
                           fill={sel ? "#ecfdf5" : "#fff"} stroke="#059669" strokeWidth={sel ? 2 : 1.5} />
                         <text x={aPx} y={iconY + 4} textAnchor="middle" fontSize={9} fontWeight={700} fill="#059669">+</text>
@@ -1651,17 +1659,6 @@ function TutorialScreen({ vizMode, onDismiss }) {
                         {showConf && !isUserPk && pk.confidence != null && (
                           <span style={{ fontSize: 10, fontWeight: 700, color: confColor(pk.confidence), background: confBg(pk.confidence), padding: "1px 5px", borderRadius: 6 }}>{pk.confidence}%</span>
                         )}
-                        {/* Explanation inline when selected */}
-                        {sel && txt && (
-                          <span style={{ fontSize: 10, color: "#475569", maxWidth: 220, lineHeight: 1.4 }}>{txt}</span>
-                        )}
-                        {sel && tutThresholds && (
-                          <div style={{ padding: "3px 0" }}>
-                            <ThresholdBar label="Prominence" pct={tutThresholds.prominence} width={160} />
-                            <ThresholdBar label="Width" pct={tutThresholds.width} width={160} />
-                            <ThresholdBar label="Height" pct={tutThresholds.height} width={160} />
-                          </div>
-                        )}
                         <span
                           onClick={e => { e.stopPropagation(); tutDeletePeak(pk.id); setHasDeletedPeak(true); }}
                           style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 16, height: 16, borderRadius: "50%", background: "#fecaca", color: "#dc2626", fontSize: 10, fontWeight: 800, cursor: "pointer", flexShrink: 0, lineHeight: 1 }}
@@ -1707,6 +1704,25 @@ function TutorialScreen({ vizMode, onDismiss }) {
                         <div>End: <strong>{fmt(selPk.userEnd)}</strong></div>
                       </div>
                     </div>
+                    {/* Threshold bars for threshold_bars condition */}
+                    {(() => {
+                      const origIdx = TUTORIAL_PEAKS.findIndex(p => p.id === selPk.id);
+                      const ex = origIdx >= 0 ? TUTORIAL_EXPLANATIONS[origIdx] : null;
+                      const tutThresholds = vizMode === "threshold_bars" && ex ? (ex.thresholds || parseThresholdPcts(ex.feature)) : null;
+                      const txt = hasExplanation && ex ? (vizMode === "normal_explain" ? ex.feature : ex.counterfactual) : null;
+                      if (!tutThresholds && !txt) return null;
+                      return (
+                        <div style={{ padding: "10px 16px", borderBottom: "1px solid #e5e7eb", background: "#fafafa" }}>
+                          {txt && <div style={{ fontSize: 11, color: "#475569", lineHeight: 1.5, marginBottom: tutThresholds ? 8 : 0 }}>{txt}</div>}
+                          {tutThresholds && <>
+                            <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 6 }}>Detection margins:</div>
+                            <ThresholdBar label="Prominence" pct={tutThresholds.prominence} width={360} />
+                            <ThresholdBar label="Width" pct={tutThresholds.width} width={360} />
+                            <ThresholdBar label="Height" pct={tutThresholds.height} width={360} />
+                          </>}
+                        </div>
+                      );
+                    })()}
                     <div style={{ padding: "10px 16px", display: "flex", gap: 8 }}>
                       <div style={{ flex: 1, fontSize: 11, color: "#64748b", lineHeight: 1.5, alignSelf: "center" }}>
                         Drag the ◀ Start, ◆ Apex, ▶ End handles on the chart to adjust boundaries. If this is not a real peak, delete it.
@@ -2578,7 +2594,27 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
       .map((p, i) => `${i === 0 ? 'M' : 'L'}${fCtxXScale(p[0]).toFixed(1)},${fCtxYScale(p[1]).toFixed(1)}`).join(' ');
   }, [displayData, fCtxXScale, fCtxYScale]);
 
-  const fGetSvgX = useCallback(e => { const r = svgRef.current?.getBoundingClientRect(); return r ? e.clientX - r.left : 0; }, []);
+  // svgCallbackRef attaches the wheel listener the moment the SVG element
+  // enters the DOM — fixes the race condition where useEffect([]) ran before
+  // the SVG was mounted and the listener never attached.
+  const wheelHandlerRef = useRef(null);
+  const svgCallbackRef = useCallback(el => {
+    if (wheelHandlerRef.current && svgRef.current) {
+      svgRef.current.removeEventListener('wheel', wheelHandlerRef.current);
+    }
+    svgRef.current = el;
+    if (!el) return;
+    const handler = (e) => fOnWheelRef.current(e);
+    wheelHandlerRef.current = handler;
+    el.addEventListener('wheel', handler, { passive: false });
+  }, []);
+
+  // fGetSvgX must apply the viewBox→CSS scale factor so handle drags track the cursor.
+  const fGetSvgX = useCallback(e => {
+    const r = svgRef.current?.getBoundingClientRect();
+    if (!r) return 0;
+    return (e.clientX - r.left) * (FW / r.width);
+  }, []);
 
   // Override original handlers to use full-width scales
   const fOnWheel = useCallback(e => {
@@ -2624,7 +2660,10 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
   const fOnSvgPointerMove = useCallback(e => {
     const d = dragStateRef.current; if (!d) return;
     if (d.type === 'pan') {
-      const dx = e.clientX - d.startX, dD = -(dx / fplotW) * (d.startDomain[1] - d.startDomain[0]);
+      const r = svgRef.current?.getBoundingClientRect();
+      const scale = r ? FW / r.width : 1;
+      const dx = (e.clientX - d.startX) * scale;
+      const dD = -(dx / fplotW) * (d.startDomain[1] - d.startDomain[0]);
       let a = d.startDomain[0] + dD, b = d.startDomain[1] + dD; const w = b - a;
       if (a < xMin) { a = xMin; b = a + w; } if (b > xMax) { b = xMax; a = b - w; }
       setDomain([a, b]);
@@ -2701,14 +2740,6 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
   // to be re-registered (re-registration creates a brief gap where scroll falls through).
   const fOnWheelRef = useRef(fOnWheel);
   useEffect(() => { fOnWheelRef.current = fOnWheel; }, [fOnWheel]);
-
-  useEffect(() => {
-    const el = svgRef.current;
-    if (!el) return;
-    const handler = (e) => fOnWheelRef.current(e);
-    el.addEventListener('wheel', handler, { passive: false });
-    return () => el.removeEventListener('wheel', handler);
-  }, []); // empty deps — registers once, always calls latest handler via ref
 
   const xTicksF = useMemo(() => Array.from({ length: 9 }, (_, i) => domain[0] + (i / 8) * (domain[1] - domain[0])), [domain]);
   const yTicksF = useMemo(() => Array.from({ length: 6 }, (_, i) => (i / 5) * yMax), [yMax]);
@@ -2813,7 +2844,7 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
       {/* ── Full-width chart card ── */}
       <div style={{ padding: "12px 20px 0" }}>
         <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", overflow: "hidden" }}>
-          <svg ref={svgRef} viewBox={`0 0 ${FW} ${FH}`} width="100%" height={FH} data-track="chart_background"
+          <svg ref={svgCallbackRef} viewBox={`0 0 ${FW} ${FH}`} width="100%" height={FH} data-track="chart_background"
             style={{ display: "block", cursor: "grab", touchAction: "none", userSelect: "none" }}
             onPointerDown={fOnSvgPointerDown} onPointerMove={fOnSvgPointerMove}
             onPointerUp={fOnSvgPointerUp} onPointerLeave={fOnSvgPointerUp}>
@@ -2884,8 +2915,10 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
                   onClick={e => { e.stopPropagation(); endHover(true); setSelectedPeakId(pk.id === selectedPeakId ? null : pk.id); logEdit("select_peak", pk.id, { via: "fill", start: pk.userStart, apex: pk.userApex, end: pk.userEnd }); }}>
                   <path d={areaPath}
                     fill="rgba(30,64,175,0.18)"
-                    stroke={sel ? "rgba(30,64,175,0.7)" : "rgba(30,64,175,0.35)"}
+                    fillOpacity={1}
+                    stroke={sel ? "#1e40af" : "rgba(30,64,175,0.4)"}
                     strokeWidth={sel ? 1.5 : 1}
+                    opacity={1}
                     style={{ pointerEvents: "visible" }} />
                 </g>
               );
