@@ -1510,25 +1510,22 @@ function TutorialScreen({ vizMode, onDismiss }) {
                   );
                 })}
 
-                {/* Peaks-only fill — single clipPath pass, uniform shade */}
+                {/* Peaks-only fill — compound path, filled once, uniform shade */}
                 {vizMode === "peaks_only" && (() => {
                   const selId = tutSelectedId;
                   const aiPeaks = activeTutPeaks.filter(pk => !pk.id.startsWith("user_"));
+                  if (aiPeaks.length === 0) return null;
+                  const d = aiPeaks.map(pk => {
+                    const x0 = Math.max(txScale(pk.userStart), tpad.l);
+                    const x1 = Math.min(txScale(pk.userEnd), tpad.l + tPlotW);
+                    if (x1 <= x0) return "";
+                    const y0 = tpad.t, h = tPlotH;
+                    return `M${x0},${y0} L${x1},${y0} L${x1},${y0+h} L${x0},${y0+h} Z`;
+                  }).join(" ");
                   return (
                     <g>
-                      <defs>
-                        <clipPath id="peaks-only-clip-tut">
-                          {aiPeaks.map(pk => {
-                            const x0 = Math.max(txScale(pk.userStart), tpad.l);
-                            const x1 = Math.min(txScale(pk.userEnd), tpad.l + tPlotW);
-                            if (x1 <= x0) return null;
-                            return <rect key={pk.id} x={x0} y={tpad.t} width={x1 - x0} height={tPlotH} />;
-                          })}
-                        </clipPath>
-                      </defs>
-                      <rect x={tpad.l} y={tpad.t} width={tPlotW} height={tPlotH}
-                        fill="rgba(30,64,175,0.13)" clipPath="url(#peaks-only-clip-tut)"
-                        style={{ pointerEvents: "none" }} />
+                      <path d={d} fill="rgba(30,64,175,0.13)" fillRule="nonzero"
+                        stroke="none" style={{ pointerEvents: "none" }} />
                       {aiPeaks.map(pk => {
                         const x0 = Math.max(txScale(pk.userStart), tpad.l);
                         const x1 = Math.min(txScale(pk.userEnd), tpad.l + tPlotW);
@@ -2914,26 +2911,24 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
               );
             })}
 
-            {/* Peaks-only fill — single clipPath pass so overlapping peaks never
-                double-up opacity. The entire region is filled once at uniform color. */}
+            {/* Peaks-only fill — compound path (union of all peak rects) filled once.
+                No clipPath, no stacking — guaranteed uniform shade. */}
             {vizMode === "peaks_only" && (() => {
               const selId = selectedPeakId;
               const aiPeaks = activePeaks.filter(pk => !pk.id.startsWith("user_"));
+              if (aiPeaks.length === 0) return null;
+              // Build a single compound path: one rect subpath per peak region
+              const d = aiPeaks.map(pk => {
+                const x0 = Math.max(fxScale(pk.userStart), fpad.l);
+                const x1 = Math.min(fxScale(pk.userEnd), fpad.l + fplotW);
+                if (x1 <= x0) return "";
+                const y0 = fpad.t, h = fplotH;
+                return `M${x0},${y0} L${x1},${y0} L${x1},${y0+h} L${x0},${y0+h} Z`;
+              }).join(" ");
               return (
                 <g>
-                  <defs>
-                    <clipPath id="peaks-only-clip-main">
-                      {aiPeaks.map(pk => {
-                        const x0 = Math.max(fxScale(pk.userStart), fpad.l);
-                        const x1 = Math.min(fxScale(pk.userEnd), fpad.l + fplotW);
-                        if (x1 <= x0) return null;
-                        return <rect key={pk.id} x={x0} y={fpad.t} width={x1 - x0} height={fplotH} />;
-                      })}
-                    </clipPath>
-                  </defs>
-                  <rect x={fpad.l} y={fpad.t} width={fplotW} height={fplotH}
-                    fill="rgba(30,64,175,0.13)" clipPath="url(#peaks-only-clip-main)"
-                    style={{ pointerEvents: "none" }} />
+                  <path d={d} fill="rgba(30,64,175,0.13)" fillRule="nonzero"
+                    stroke="none" style={{ pointerEvents: "none" }} />
                   {aiPeaks.map(pk => {
                     const x0 = Math.max(fxScale(pk.userStart), fpad.l);
                     const x1 = Math.min(fxScale(pk.userEnd), fpad.l + fplotW);
