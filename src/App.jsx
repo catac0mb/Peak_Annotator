@@ -1065,7 +1065,8 @@ function TutorialScreen({ vizMode, onDismiss }) {
       const dom = tutDomainRef.current;
       const svgX = r ? (e.clientX - r.left) * viewScale : 0;
       const clampedX = Math.max(tpad.l, Math.min(tpad.l + tPlotW, svgX));
-      const xVal = dom[0] + ((clampedX - tpad.l) / tPlotW) * (dom[1] - dom[0]);
+      const rawVal = dom[0] + ((clampedX - tpad.l) / tPlotW) * (dom[1] - dom[0]);
+      const xVal = rawVal - (d.cursorOffset ?? 0);
 
       setTutAnnotations(prev => prev.map(a => {
         if (a.id !== d.peakId) return a;
@@ -1100,10 +1101,19 @@ function TutorialScreen({ vizMode, onDismiss }) {
 
   const onTutHandleDown = useCallback((peakId, handle) => e => {
     e.stopPropagation(); e.preventDefault();
-    tutDragRef.current = { type: 'handle', peakId, handle };
+    // Record cursor offset relative to handle so drag doesn't snap on first move
+    const ann = tutAnnotations.find(a => a.id === peakId);
+    const startVal = ann ? (handle === 'start' ? ann.userStart : handle === 'end' ? ann.userEnd : ann.userApex) : null;
+    const r = tutSvgRef.current?.getBoundingClientRect();
+    const viewScale = r ? TW / r.width : 1;
+    const dom = tutDomainRef.current;
+    const svgX = r ? (e.clientX - r.left) * viewScale : 0;
+    const cursorVal = dom[0] + ((svgX - tpad.l) / tPlotW) * (dom[1] - dom[0]);
+    const cursorOffset = startVal != null ? cursorVal - startVal : 0;
+    tutDragRef.current = { type: 'handle', peakId, handle, cursorOffset };
     tutSvgRef.current?.setPointerCapture(e.pointerId);
     setTutSelectedId(peakId);
-  }, []);
+  }, [tutAnnotations, tPlotW]);
 
   const tutAddPeak = useCallback(() => {
     const mid = (tutDomain[0] + tutDomain[1]) / 2, w = (tutDomain[1] - tutDomain[0]) * 0.05;
@@ -2729,7 +2739,9 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
       const dom = domainRef.current;
       const svgX = r ? (e.clientX - r.left) * viewScale : 0;
       const clampedX = Math.max(pad.l, Math.min(pad.l + pw, svgX));
-      const xVal = dom[0] + ((clampedX - pad.l) / pw) * (dom[1] - dom[0]);
+      const rawVal = dom[0] + ((clampedX - pad.l) / pw) * (dom[1] - dom[0]);
+      // Subtract the offset so the handle stays under the original click spot
+      const xVal = rawVal - (d.cursorOffset ?? 0);
 
       setAnnotations(prev => prev.map(a => {
         if (a.id !== d.peakId) return a;
@@ -2787,7 +2799,16 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
     const ann = (allAnnotations[currentIdxRef.current] || []).find(a => a.id === peakId);
     const startVal = ann ? (handle === 'start' ? ann.userStart : handle === 'end' ? ann.userEnd : ann.userApex) : null;
     const boundariesAtStart = ann ? { start: ann.userStart, apex: ann.userApex, end: ann.userEnd } : null;
-    dragStateRef.current = { type: 'handle', peakId, handle, startVal, boundariesAtStart };
+    // Compute cursor offset relative to the handle's current data value so the
+    // handle doesn't snap to the cursor on the first move — it stays under the
+    // spot where the user clicked and moves relative to that.
+    const r = svgRef.current?.getBoundingClientRect();
+    const viewScale = r ? FW / r.width : 1;
+    const pad = fpadRef.current, pw = fplotWRef.current, dom = domainRef.current;
+    const svgX = r ? (e.clientX - r.left) * viewScale : 0;
+    const cursorVal = dom[0] + ((svgX - pad.l) / pw) * (dom[1] - dom[0]);
+    const cursorOffset = startVal != null ? cursorVal - startVal : 0;
+    dragStateRef.current = { type: 'handle', peakId, handle, startVal, boundariesAtStart, cursorOffset };
     svgRef.current?.setPointerCapture(e.pointerId);
     setSelectedPeakId(peakId);
     // Log start_drag immediately
