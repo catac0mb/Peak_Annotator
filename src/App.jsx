@@ -1510,40 +1510,22 @@ function TutorialScreen({ vizMode, onDismiss }) {
                   );
                 })}
 
-                {/* Peaks-only fill — compound path, filled once, uniform shade */}
-                {vizMode === "peaks_only" && (() => {
-                  const selId = tutSelectedId;
-                  const aiPeaks = activeTutPeaks.filter(pk => !pk.id.startsWith("user_"));
-                  if (aiPeaks.length === 0) return null;
-                  const d = aiPeaks.map(pk => {
-                    const x0 = Math.max(txScale(pk.userStart), tpad.l);
-                    const x1 = Math.min(txScale(pk.userEnd), tpad.l + tPlotW);
-                    if (x1 <= x0) return "";
-                    const y0 = tpad.t, h = tPlotH;
-                    return `M${x0},${y0} L${x1},${y0} L${x1},${y0+h} L${x0},${y0+h} Z`;
-                  }).join(" ");
+                {/* Peaks-only: no fill, selection border only */}
+                {vizMode === "peaks_only" && activeTutPeaks.filter(pk => !pk.id.startsWith("user_")).map(pk => {
+                  const x0 = Math.max(txScale(pk.userStart), tpad.l);
+                  const x1 = Math.min(txScale(pk.userEnd), tpad.l + tPlotW);
+                  if (x1 <= x0) return null;
+                  const sel = pk.id === tutSelectedId;
                   return (
-                    <g>
-                      <path d={d} fill="rgba(30,64,175,0.13)" fillRule="nonzero"
-                        stroke="none" style={{ pointerEvents: "none" }} />
-                      {aiPeaks.map(pk => {
-                        const x0 = Math.max(txScale(pk.userStart), tpad.l);
-                        const x1 = Math.min(txScale(pk.userEnd), tpad.l + tPlotW);
-                        if (x1 <= x0) return null;
-                        const sel = pk.id === selId;
-                        return (
-                          <rect key={`hit${pk.id}`}
-                            x={x0} y={tpad.t} width={x1 - x0} height={tPlotH}
-                            fill="transparent"
-                            stroke={sel ? "#1e40af" : "none"} strokeWidth={sel ? 1.5 : 0}
-                            style={{ cursor: "pointer", pointerEvents: "visible" }}
-                            onPointerEnter={() => setTutHoveredId(pk.id)} onPointerLeave={() => setTutHoveredId(null)}
-                            onClick={e => { e.stopPropagation(); setTutSelectedId(pk.id === selId ? null : pk.id); setHasSelectedPeak(true); }} />
-                        );
-                      })}
-                    </g>
+                    <rect key={`hit${pk.id}`}
+                      x={x0} y={tpad.t} width={x1 - x0} height={tPlotH}
+                      fill="transparent"
+                      stroke={sel ? "#1e40af" : "none"} strokeWidth={sel ? 1.5 : 0}
+                      style={{ cursor: "pointer", pointerEvents: "visible" }}
+                      onPointerEnter={() => setTutHoveredId(pk.id)} onPointerLeave={() => setTutHoveredId(null)}
+                      onClick={e => { e.stopPropagation(); setTutSelectedId(pk.id === tutSelectedId ? null : pk.id); setHasSelectedPeak(true); }} />
                   );
-                })()}
+                })}
 
                 {/* Signal line */}
                 <path d={tutPathD} fill="none" stroke="#1e293b" strokeWidth={1.5} strokeLinejoin="round" />
@@ -2911,43 +2893,23 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
               );
             })}
 
-            {/* Peaks-only fill — compound path (union of all peak rects) filled once.
-                No clipPath, no stacking — guaranteed uniform shade. */}
-            {vizMode === "peaks_only" && (() => {
-              const selId = selectedPeakId;
-              const aiPeaks = activePeaks.filter(pk => !pk.id.startsWith("user_"));
-              if (aiPeaks.length === 0) return null;
-              // Build a single compound path: one rect subpath per peak region
-              const d = aiPeaks.map(pk => {
-                const x0 = Math.max(fxScale(pk.userStart), fpad.l);
-                const x1 = Math.min(fxScale(pk.userEnd), fpad.l + fplotW);
-                if (x1 <= x0) return "";
-                const y0 = fpad.t, h = fplotH;
-                return `M${x0},${y0} L${x1},${y0} L${x1},${y0+h} L${x0},${y0+h} Z`;
-              }).join(" ");
+            {/* Peaks-only: no fill, selection border only */}
+            {vizMode === "peaks_only" && activePeaks.filter(pk => !pk.id.startsWith("user_")).map(pk => {
+              const x0 = Math.max(fxScale(pk.userStart), fpad.l);
+              const x1 = Math.min(fxScale(pk.userEnd), fpad.l + fplotW);
+              if (x1 <= x0) return null;
+              const sel = pk.id === selectedPeakId;
               return (
-                <g>
-                  <path d={d} fill="rgba(30,64,175,0.13)" fillRule="nonzero"
-                    stroke="none" style={{ pointerEvents: "none" }} />
-                  {aiPeaks.map(pk => {
-                    const x0 = Math.max(fxScale(pk.userStart), fpad.l);
-                    const x1 = Math.min(fxScale(pk.userEnd), fpad.l + fplotW);
-                    if (x1 <= x0) return null;
-                    const sel = pk.id === selId;
-                    return (
-                      <rect key={`hit${pk.id}`}
-                        x={x0} y={fpad.t} width={x1 - x0} height={fplotH}
-                        fill="transparent"
-                        stroke={sel ? "#1e40af" : "none"} strokeWidth={sel ? 1.5 : 0}
-                        data-track="peaks_only_fill" data-peak-id={pk.id}
-                        style={{ cursor: "pointer", pointerEvents: "visible" }}
-                        onPointerEnter={() => beginHover(pk.id)} onPointerLeave={() => endHover(false)}
-                        onClick={e => { e.stopPropagation(); endHover(true); setSelectedPeakId(pk.id === selId ? null : pk.id); logEdit("select_peak", pk.id, { via: "fill", start: pk.userStart, apex: pk.userApex, end: pk.userEnd }); }} />
-                    );
-                  })}
-                </g>
+                <rect key={`hit${pk.id}`}
+                  x={x0} y={fpad.t} width={x1 - x0} height={fplotH}
+                  fill="transparent"
+                  stroke={sel ? "#1e40af" : "none"} strokeWidth={sel ? 1.5 : 0}
+                  data-track="peaks_only_fill" data-peak-id={pk.id}
+                  style={{ cursor: "pointer", pointerEvents: "visible" }}
+                  onPointerEnter={() => beginHover(pk.id)} onPointerLeave={() => endHover(false)}
+                  onClick={e => { e.stopPropagation(); endHover(true); setSelectedPeakId(pk.id === selectedPeakId ? null : pk.id); logEdit("select_peak", pk.id, { via: "fill", start: pk.userStart, apex: pk.userApex, end: pk.userEnd }); }} />
               );
-            })()}
+            })}
 
             {/* Chromatogram line */}
             <path d={fPathD} fill="none" stroke="#1e293b" strokeWidth={1.5} strokeLinejoin="round" />
