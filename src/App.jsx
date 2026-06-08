@@ -680,11 +680,8 @@ function WelcomeScreen({ onStart }) {
   };
 
   const vizOptions = [
-    { id: "none", label: "No Visualizations", desc: "Chromatogram only \u2014 no AI assistance" },
     { id: "peaks_only", label: "AI Peaks Only", desc: "AI-detected peak regions shown, but no confidence scores or explanations" },
     { id: "confidence", label: "Confidence Icons", desc: "Color-coded confidence circles above each detected peak" },
-    { id: "normal_explain", label: "Confidence + Explanations", desc: "Confidence icons plus a side panel explaining why each peak was detected" },
-    { id: "counterfactual_explain", label: "Confidence + Counterfactual", desc: "Confidence icons plus a side panel showing what would cause each detection to fail" },
     { id: "threshold_bars", label: "Confidence + Threshold Bars", desc: "Confidence icons plus visual bars showing how far each peak's prominence, width, and height are from the detection threshold" },
   ];
 
@@ -805,13 +802,13 @@ const GROUND_TRUTH_PEAKS = [
 ];
 
 // AI-detected peaks for tutorial:
-// Peak 1: correct detection, good boundaries
-// Peak 2: correct detection, but boundaries WRONG (start too early, end too late)
+// Peak 1: correct detection, but boundaries TOO TIGHT (start/end too close to apex)
+// Peak 2: correct detection, good boundaries — leave as is
 // Peak 3: FALSE POSITIVE on the flat region around t=9.8 — no real peak here
 // NOTE: the AI MISSES the real peak at t=7.5 — user must add it
 const TUTORIAL_PEAKS = [
-  { id: "tut_1", label: "Peak @ 2.50", apex: 2.5, start: 1.8, end: 3.2, confidence: 95, signal: 85 },
-  { id: "tut_2", label: "Peak @ 5.00", apex: 5.0, start: 3.6, end: 6.5, confidence: 68, signal: 60 },
+  { id: "tut_1", label: "Peak @ 2.50", apex: 2.5, start: 2.2, end: 2.8, confidence: 95, signal: 85 },
+  { id: "tut_2", label: "Peak @ 5.00", apex: 5.0, start: 4.2, end: 5.8, confidence: 68, signal: 60 },
   { id: "tut_3", label: "Peak @ 9.80", apex: 9.8, start: 9.3, end: 10.3, confidence: 28, signal: 7 },
 ];
 
@@ -841,7 +838,8 @@ function TutorialScreen({ vizMode, onDismiss }) {
   const tutDragRef = useRef(null);
   const [, tutForce] = useState(0);
 
-  // Track specific task completions
+  // Track specific task completions — reset when the step changes so
+  // each step only counts actions taken while it is active.
   const [hasZoomed, setHasZoomed] = useState(false);
   const [hasPanned, setHasPanned] = useState(false);
   const [hasSelectedPeak, setHasSelectedPeak] = useState(false);
@@ -849,6 +847,18 @@ function TutorialScreen({ vizMode, onDismiss }) {
   const [hasAddedPeak, setHasAddedPeak] = useState(false);
   const [hasDeletedPeak, setHasDeletedPeak] = useState(false);
   const [hasHoveredPeak, setHasHoveredPeak] = useState(false);
+
+  // When the user advances to a new step, reset all per-step flags so
+  // previously completed actions don't auto-complete the new step.
+  useEffect(() => {
+    setHasZoomed(false);
+    setHasPanned(false);
+    setHasSelectedPeak(false);
+    setHasDragged(false);
+    setHasAddedPeak(false);
+    setHasDeletedPeak(false);
+    setHasHoveredPeak(false);
+  }, [step]);
 
   const activeTutPeaks = useMemo(() => tutAnnotations.filter(a => !a.deleted), [tutAnnotations]);
   const showConf = isAICondition && vizMode !== "peaks_only";
@@ -861,11 +871,11 @@ function TutorialScreen({ vizMode, onDismiss }) {
     return m;
   }, [tutPeaksSorted]);
 
-  // ── Live validation: Peak 2 boundary correction (AI conditions) ──
+  // ── Live validation: Peak 1 boundary correction (AI conditions) ──
   const peak2Validation = useMemo(() => {
-    const pk = tutAnnotations.find(a => a.id === "tut_2");
+    const pk = tutAnnotations.find(a => a.id === "tut_1");
     if (!pk) return { edited: false, apexOk: false, widthOk: false, correct: false, feedback: "" };
-    const gt = GROUND_TRUTH_PEAKS[1];
+    const gt = GROUND_TRUTH_PEAKS[0];
     const tol = getTutPeakTolerance(gt);
     const apexErr = Math.abs(pk.userApex - gt.apex);
     const apexOk = apexErr <= tol;
@@ -873,14 +883,14 @@ function TutorialScreen({ vizMode, onDismiss }) {
     const endErr = Math.abs(pk.userEnd - gt.end);
     const boundsOk = startErr <= tol && endErr <= tol;
     const widthOk = isTutWidthReasonable(pk, gt);
-    const moved = Math.abs(pk.userStart - 3.6) > 0.12 || Math.abs(pk.userEnd - 6.5) > 0.12;
+    const moved = Math.abs(pk.userStart - 2.2) > 0.12 || Math.abs(pk.userEnd - 2.8) > 0.12;
     const correct = apexOk && boundsOk && widthOk;
 
     let feedback = "";
-    if (!moved) feedback = "The boundaries are still at the AI's original (incorrect) positions. Drag the handles to fix them.";
-    else if (!widthOk) feedback = "Your peak is still too wide. Narrow the start and end boundaries.";
+    if (!moved) feedback = "The boundaries are still at the AI's original (too tight) positions. Drag the handles outward to widen them.";
+    else if (!widthOk) feedback = "Your peak boundaries are still too narrow. Widen the start and end boundaries.";
     else if (!boundsOk && !apexOk) feedback = "The apex and boundaries are not close enough to the real peak. Keep adjusting.";
-    else if (!boundsOk) feedback = "Getting closer! The boundaries need more adjustment. The real peak starts around t\u22484.2 and ends around t\u22485.8.";
+    else if (!boundsOk) feedback = "Getting closer! The real peak starts around t\u22481.8 and ends around t\u22483.2.";
     else if (correct) feedback = "Correct! The boundaries now match the real peak.";
     else feedback = "Almost there — keep adjusting the boundaries.";
 
@@ -997,14 +1007,17 @@ function TutorialScreen({ vizMode, onDismiss }) {
     setHasZoomed(true);
   }, [tutDomain, txInv]);
 
-  // Non-passive wheel listener for tutorial SVG to prevent page scroll during zoom
+  // Non-passive wheel listener for tutorial SVG — use stable ref so zoom
+  // works immediately without requiring a click first.
+  const onTutWheelRef = useRef(onTutWheel);
+  useEffect(() => { onTutWheelRef.current = onTutWheel; }, [onTutWheel]);
   useEffect(() => {
     const el = tutSvgRef.current;
     if (!el) return;
-    const handler = (e) => onTutWheel(e);
+    const handler = (e) => onTutWheelRef.current(e);
     el.addEventListener('wheel', handler, { passive: false });
     return () => el.removeEventListener('wheel', handler);
-  }, [onTutWheel]);
+  }, []); // registers once
 
   const onTutPointerDown = useCallback(e => {
     let el = e.target;
@@ -1160,7 +1173,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
       // Select a peak
       allSteps.push({
         title: "Reviewing a Detection",
-        instruction: "To review an AI detection, click on its pill in the peak list below the chart. This selects the peak and shows its start, apex, and end boundary lines on the chart, along with draggable handles.\n\nEach pill also has a red \u2715 button \u2014 click it to delete that peak without needing to select it first.\n\nClick on the peak at t\u22485.00 in the peak list to select it.",
+        instruction: "To review an AI detection, click on its pill in the peak list below the chart. This selects the peak and shows its start, apex, and end boundary lines on the chart, along with draggable handles.\n\nEach pill also has a red \u2715 button \u2014 click it to delete that peak without needing to select it first.\n\nClick on the peak at t\u22482.50 in the peak list to select it.",
         task: "Click a peak pill to select it",
         isDone: hasSelectedPeak,
         feedback: null,
@@ -1169,8 +1182,8 @@ function TutorialScreen({ vizMode, onDismiss }) {
       // Edit boundaries with live validation feedback
       allSteps.push({
         title: "Correcting Peak Boundaries",
-        instruction: "The peak at t\u22485.00 is a real peak, but the AI's boundaries are wrong — the start is too early and the end is too late. When a peak is selected, you'll see three handles below the chart:\n\n\u2022 \u25B6 Start boundary (left-pointing triangle)\n\u2022 \u25C6 Apex position (diamond)\n\u2022 \u25C0 End boundary (right-pointing triangle)\n\nDrag the handles to correct this peak's boundaries until the feedback below turns green.",
-        task: "Fix the peak at t\u22485.00 — adjust its boundaries to match the real peak",
+        instruction: "The peak at t\u22482.50 is a real peak, but the AI's boundaries are too tight \u2014 the start and end are too close to the apex. When a peak is selected, you'll see three handles below the chart:\n\n\u2022 \u25B6 Start boundary (left-pointing triangle)\n\u2022 \u25C6 Apex position (diamond)\n\u2022 \u25C0 End boundary (right-pointing triangle)\n\nDrag the start handle left and the end handle right to widen the boundaries until the feedback below turns green.",
+        task: "Fix the peak at t\u22482.50 \u2014 widen its boundaries to match the real peak",
         isDone: peak2Validation.correct,
         feedback: peak2Validation.feedback,
         feedbackOk: peak2Validation.correct,
@@ -1259,19 +1272,6 @@ function TutorialScreen({ vizMode, onDismiss }) {
 
     return allSteps;
   }, [vizMode, isAICondition, hasZoomed, hasPanned, hasSelectedPeak, hasDragged, hasAddedPeak, hasDeletedPeak, hasHoveredPeak, peak2Validation, falsePositiveDeleted, missedPeakValidation, nonePeakValidation]);
-
-  // Mark step as completed when isDone becomes true
-  useEffect(() => {
-    if (steps[step]?.isDone) {
-      setCompletedSteps(prev => { const n = new Set(prev); n.add(step); return n; });
-    }
-  }, [step, steps]);
-
-  useEffect(() => {
-    if (steps[step]?.isDone && !completedSteps.has(step)) {
-      setCompletedSteps(prev => { const n = new Set(prev); n.add(step); return n; });
-    }
-  }, [steps, step, completedSteps]);
 
   const canAdvance = steps[step]?.isDone;
   const isLast = step === steps.length - 1;
@@ -1512,16 +1512,14 @@ function TutorialScreen({ vizMode, onDismiss }) {
                   if (isUserPk) return null;
                   const x0 = txScale(pk.userStart), x1 = txScale(pk.userEnd);
                   if (x1 < tpad.l || x0 > tpad.l + tPlotW) return null;
-                  const sel = pk.id === tutSelectedId, hov = pk.id === tutHoveredId;
-                  const baseOpacity = sel ? 0.35 : hov ? 0.28 : 0.18;
-                  const strokeOpacity = sel ? 0.7 : hov ? 0.5 : 0.35;
+                  const sel = pk.id === tutSelectedId;
                   const areaPath = buildTutPeakAreaPath(pk);
                   return (
                     <g key={`fill${pk.id}`} style={{ cursor: "pointer", pointerEvents: "auto" }}
                       onPointerEnter={() => setTutHoveredId(pk.id)} onPointerLeave={() => setTutHoveredId(null)}
                       onClick={e => { e.stopPropagation(); setTutSelectedId(pk.id === tutSelectedId ? null : pk.id); setHasSelectedPeak(true); }}>
-                      <path d={areaPath} fill={`rgba(30,64,175,${baseOpacity})`}
-                        stroke={`rgba(30,64,175,${strokeOpacity})`} strokeWidth={sel ? 1.5 : 1}
+                      <path d={areaPath} fill="rgba(30,64,175,0.18)"
+                        stroke={sel ? "rgba(30,64,175,0.7)" : "rgba(30,64,175,0.35)"} strokeWidth={sel ? 1.5 : 1}
                         style={{ pointerEvents: "visible" }} />
                     </g>
                   );
@@ -1739,7 +1737,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
                     style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid #d1d5db", background: "#fff", fontSize: 13, fontWeight: 600, cursor: step === 0 ? "not-allowed" : "pointer", opacity: step === 0 ? .4 : 1, color: "#374151" }}>
                     ← Back
                   </button>
-                  <button onClick={isLast ? onDismiss : () => setStep(s => s + 1)} disabled={!canAdvance}
+                  <button onClick={() => { setCompletedSteps(prev => { const n = new Set(prev); n.add(step); return n; }); if (isLast) onDismiss(); else setStep(s => s + 1); }} disabled={!canAdvance}
                     style={{ flex: 2, padding: "10px 20px", borderRadius: 8, border: "none", background: canAdvance ? (isLast ? "#059669" : "#1e40af") : "#cbd5e1", color: "#fff", fontSize: 13, fontWeight: 700, cursor: canAdvance ? "pointer" : "not-allowed" }}>
                     {isLast ? "✅ Start Annotating" : `Next → ${steps[step + 1] ? steps[step + 1].title : ""}`}
                   </button>
@@ -1762,7 +1760,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
                 style={{ flex: 1, padding: "12px", borderRadius: 8, border: "1px solid #d1d5db", background: "#fff", fontSize: 13, fontWeight: 600, cursor: step === 0 ? "not-allowed" : "pointer", opacity: step === 0 ? .4 : 1, color: "#374151" }}>
                 ← Back
               </button>
-              <button onClick={isLast ? onDismiss : () => setStep(s => s + 1)} disabled={!canAdvance}
+              <button onClick={() => { setCompletedSteps(prev => { const n = new Set(prev); n.add(step); return n; }); if (isLast) onDismiss(); else setStep(s => s + 1); }} disabled={!canAdvance}
                 style={{ flex: 2, padding: "12px 20px", borderRadius: 8, border: "none", background: canAdvance ? (isLast ? "#059669" : "#1e40af") : "#cbd5e1", color: "#fff", fontSize: 14, fontWeight: 700, cursor: canAdvance ? "pointer" : "not-allowed" }}>
                 {isLast ? "✅ Start Annotating" : "Next →"}
               </button>
@@ -2699,16 +2697,18 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
     });
   }, [allAnnotations, spatialIndexOf]);
 
-  // Attach wheel listener as non-passive so preventDefault() actually works.
-  // React's synthetic onWheel is passive by default in modern browsers, which
-  // means e.preventDefault() is silently ignored and the page scrolls.
+  // Use a ref to hold the latest fOnWheel so the event listener never needs
+  // to be re-registered (re-registration creates a brief gap where scroll falls through).
+  const fOnWheelRef = useRef(fOnWheel);
+  useEffect(() => { fOnWheelRef.current = fOnWheel; }, [fOnWheel]);
+
   useEffect(() => {
     const el = svgRef.current;
     if (!el) return;
-    const handler = (e) => fOnWheel(e);
+    const handler = (e) => fOnWheelRef.current(e);
     el.addEventListener('wheel', handler, { passive: false });
     return () => el.removeEventListener('wheel', handler);
-  }, [fOnWheel]);
+  }, []); // empty deps — registers once, always calls latest handler via ref
 
   const xTicksF = useMemo(() => Array.from({ length: 9 }, (_, i) => domain[0] + (i / 8) * (domain[1] - domain[0])), [domain]);
   const yTicksF = useMemo(() => Array.from({ length: 6 }, (_, i) => (i / 5) * yMax), [yMax]);
@@ -2874,9 +2874,7 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
               if (isUserPk) return null;
               const x0 = fxScale(pk.userStart), x1 = fxScale(pk.userEnd);
               if (x1 < fpad.l || x0 > fpad.l + fplotW) return null;
-              const sel = pk.id === selectedPeakId, hov = pk.id === hoveredPeakId;
-              const baseOpacity = sel ? 0.35 : hov ? 0.28 : 0.18;
-              const strokeOpacity = sel ? 0.7 : hov ? 0.5 : 0.35;
+              const sel = pk.id === selectedPeakId;
               const areaPath = buildPeakAreaPath(pk);
               return (
                 <g key={`fill${pk.id}`}
@@ -2885,8 +2883,8 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
                   onPointerEnter={() => beginHover(pk.id)} onPointerLeave={() => endHover(false)}
                   onClick={e => { e.stopPropagation(); endHover(true); setSelectedPeakId(pk.id === selectedPeakId ? null : pk.id); logEdit("select_peak", pk.id, { via: "fill", start: pk.userStart, apex: pk.userApex, end: pk.userEnd }); }}>
                   <path d={areaPath}
-                    fill={`rgba(30,64,175,${baseOpacity})`}
-                    stroke={`rgba(30,64,175,${strokeOpacity})`}
+                    fill="rgba(30,64,175,0.18)"
+                    stroke={sel ? "rgba(30,64,175,0.7)" : "rgba(30,64,175,0.35)"}
                     strokeWidth={sel ? 1.5 : 1}
                     style={{ pointerEvents: "visible" }} />
                 </g>
