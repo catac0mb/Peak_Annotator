@@ -1040,24 +1040,32 @@ function TutorialScreen({ vizMode, onDismiss }) {
   }, [tutDomain, txInv]);
 
   // Refs for tutorial hot-path scale values
+  const tutDomainRef = useRef(tutDomain);
+  useEffect(() => { tutDomainRef.current = tutDomain; }, [tutDomain]);
   const txInvRef = useRef(txInv);
   useEffect(() => { txInvRef.current = txInv; }, [txInv]);
 
   const onTutPointerMove = useCallback(e => {
     const d = tutDragRef.current; if (!d) return;
     const r = tutSvgRef.current?.getBoundingClientRect();
-    const scale = r ? TW / r.width : 1;
+    const viewScale = r ? TW / r.width : 1;
+
     if (d.type === 'pan') {
-      const dx = (e.clientX - d.startX) * scale;
+      const dx = (e.clientX - d.startX) * viewScale;
       const dD = -(dx / tPlotW) * (d.startDomain[1] - d.startDomain[0]);
       let a = d.startDomain[0] + dD, b = d.startDomain[1] + dD; const w = b - a;
       if (a < 0) { a = 0; b = a + w; } if (b > 12) { b = 12; a = b - w; }
       setTutDomain([a, b]);
       if (Math.abs(dx) > 15) { setHasPanned(true); d.hasMoved = true; }
     }
+
     if (d.type === 'handle') {
-      const svgX = r ? (e.clientX - r.left) * (TW / r.width) : 0;
-      const xVal = txInvRef.current(Math.max(tpad.l, Math.min(tpad.l + tPlotW, svgX)));
+      // Compute txInv inline from live refs
+      const dom = tutDomainRef.current;
+      const svgX = r ? (e.clientX - r.left) * viewScale : 0;
+      const clampedX = Math.max(tpad.l, Math.min(tpad.l + tPlotW, svgX));
+      const xVal = dom[0] + ((clampedX - tpad.l) / tPlotW) * (dom[1] - dom[0]);
+
       setTutAnnotations(prev => prev.map(a => {
         if (a.id !== d.peakId) return a;
         const u = { ...a };
@@ -2612,6 +2620,11 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
       .map((p, i) => `${i === 0 ? 'M' : 'L'}${fCtxXScale(p[0]).toFixed(1)},${fCtxYScale(p[1]).toFixed(1)}`).join(' ');
   }, [displayData, fCtxXScale, fCtxYScale]);
 
+  // Keep domain in a ref so pointermove can always compute fxInv with current values
+  // without depending on stale useCallback closures or useEffect-lagged refs.
+  const domainRef = useRef(domain);
+  useEffect(() => { domainRef.current = domain; }, [domain]);
+
   // Keep refs to hot-path scale functions so the pointer-move handler never
   // closes over stale values — avoids the handle lag/jump on each re-render.
   const fxInvRef = useRef(fxInv);
@@ -2690,24 +2703,27 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
 
   const fOnSvgPointerMove = useCallback(e => {
     const d = dragStateRef.current; if (!d) return;
+    const r = svgRef.current?.getBoundingClientRect();
+    const viewScale = r ? FW / r.width : 1;
+
     if (d.type === 'pan') {
-      const r = svgRef.current?.getBoundingClientRect();
-      const scale = r ? FW / r.width : 1;
-      const dx = (e.clientX - d.startX) * scale;
-      const dD = -(dx / fplotWRef.current) * (d.startDomain[1] - d.startDomain[0]);
+      const dx = (e.clientX - d.startX) * viewScale;
+      const pw = fplotWRef.current;
+      const dD = -(dx / pw) * (d.startDomain[1] - d.startDomain[0]);
       let a = d.startDomain[0] + dD, b = d.startDomain[1] + dD; const w = b - a;
       if (a < xMin) { a = xMin; b = a + w; } if (b > xMax) { b = xMax; a = b - w; }
       setDomain([a, b]);
       if (!d.hasMoved && Math.abs(dx) > 4) d.hasMoved = true;
     }
+
     if (d.type === 'handle') {
-      // Use refs so we always have the current scale without stale closures.
+      // Compute fxInv inline from live refs — no stale closure possible
       const pad = fpadRef.current, pw = fplotWRef.current;
-      const svgX = (() => {
-        const r = svgRef.current?.getBoundingClientRect();
-        return r ? (e.clientX - r.left) * (FW / r.width) : 0;
-      })();
-      const xVal = fxInvRef.current(Math.max(pad.l, Math.min(pad.l + pw, svgX)));
+      const dom = domainRef.current;
+      const svgX = r ? (e.clientX - r.left) * viewScale : 0;
+      const clampedX = Math.max(pad.l, Math.min(pad.l + pw, svgX));
+      const xVal = dom[0] + ((clampedX - pad.l) / pw) * (dom[1] - dom[0]);
+
       setAnnotations(prev => prev.map(a => {
         if (a.id !== d.peakId) return a;
         const u = { ...a };
