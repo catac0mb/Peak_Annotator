@@ -1030,9 +1030,18 @@ function TutorialScreen({ vizMode, onDismiss }) {
       if (track && (track.includes('confidence') || track.includes('icon') || track.includes('handle') || track.includes('peak_icon'))) return;
       el = el.parentElement;
     }
-    tutDragRef.current = { type: 'pan', startX: e.clientX, startDomain: [...tutDomain] };
+    const r = tutSvgRef.current?.getBoundingClientRect();
+    const scale = r ? TW / r.width : 1;
+    const svgPx = r ? (e.clientX - r.left) * scale : 0;
+    const chartX = txInv(svgPx);
+
+    tutDragRef.current = { type: 'pan', startX: e.clientX, startDomain: [...tutDomain], clickChartX: chartX, hasMoved: false };
     tutSvgRef.current?.setPointerCapture(e.pointerId);
-  }, [tutDomain]);
+  }, [tutDomain, txInv]);
+
+  // Refs for tutorial hot-path scale values
+  const txInvRef = useRef(txInv);
+  useEffect(() => { txInvRef.current = txInv; }, [txInv]);
 
   const onTutPointerMove = useCallback(e => {
     const d = tutDragRef.current; if (!d) return;
@@ -1044,10 +1053,11 @@ function TutorialScreen({ vizMode, onDismiss }) {
       let a = d.startDomain[0] + dD, b = d.startDomain[1] + dD; const w = b - a;
       if (a < 0) { a = 0; b = a + w; } if (b > 12) { b = 12; a = b - w; }
       setTutDomain([a, b]);
-      if (Math.abs(dx) > 15) setHasPanned(true);
+      if (Math.abs(dx) > 15) { setHasPanned(true); d.hasMoved = true; }
     }
     if (d.type === 'handle') {
-      const xVal = txInv(Math.max(tpad.l, Math.min(tpad.l + tPlotW, getSvgX(e))));
+      const svgX = r ? (e.clientX - r.left) * (TW / r.width) : 0;
+      const xVal = txInvRef.current(Math.max(tpad.l, Math.min(tpad.l + tPlotW, svgX)));
       setTutAnnotations(prev => prev.map(a => {
         if (a.id !== d.peakId) return a;
         const u = { ...a };
@@ -1058,14 +1068,26 @@ function TutorialScreen({ vizMode, onDismiss }) {
       }));
       tutForce(n => n + 1);
     }
-  }, [tPlotW, txInv, getSvgX]);
+  }, [tPlotW]);
 
   const onTutPointerUp = useCallback(e => {
     const ds = tutDragRef.current;
-    if (ds?.type === 'handle') setHasDragged(true);
+    if (ds?.type === 'handle') {
+      setHasDragged(true);
+    } else if (ds?.type === 'pan' && !ds.hasMoved) {
+      // True click — select closest peak by apex
+      const chartX = ds.clickChartX;
+      if (activeTutPeaks.length > 0) {
+        const hit = activeTutPeaks.reduce((a, b) => Math.abs(a.userApex - chartX) <= Math.abs(b.userApex - chartX) ? a : b);
+        const nextId = hit.id === tutSelectedId ? null : hit.id;
+        setTutSelectedId(nextId);
+        setHasSelectedPeak(true);
+        if (nextId) { const mid = hit.userApex; const w = tutDomain[1] - tutDomain[0]; setTutDomain([mid - w/2, mid + w/2]); }
+      }
+    }
     tutDragRef.current = null;
     try { tutSvgRef.current?.releasePointerCapture(e.pointerId); } catch (_) {}
-  }, []);
+  }, [activeTutPeaks, tutSelectedId, tutDomain]);
 
   const onTutHandleDown = useCallback((peakId, handle) => e => {
     e.stopPropagation(); e.preventDefault();
@@ -1475,19 +1497,6 @@ function TutorialScreen({ vizMode, onDismiss }) {
                 <text x={tpad.l + tPlotW / 2} y={TH - 2} textAnchor="middle" fontSize={12} fontWeight={600} fill="#64748b">Time</text>
                 <text x={13} y={tpad.t + tPlotH / 2} textAnchor="middle" fontSize={12} fontWeight={600} fill="#64748b" transform={`rotate(-90,13,${tpad.t + tPlotH / 2})`}>Intensity</text>
 
-                {/* Shaded regions — hovered/selected */}
-                {activeTutPeaks.map(pk => {
-                  const x0 = Math.max(txScale(pk.userStart), tpad.l), x1 = Math.min(txScale(pk.userEnd), tpad.l + tPlotW);
-                  if (x1 < tpad.l || x0 > tpad.l + tPlotW) return null;
-                  const sel = pk.id === tutSelectedId, hov = pk.id === tutHoveredId;
-                  if (!sel && !hov) return null;
-                  return <rect key={`s${pk.id}`} x={x0} y={tpad.t} width={Math.max(2, x1 - x0)} height={tPlotH}
-                    fill={sel ? "rgba(59,130,246,.09)" : "rgba(100,116,139,.05)"}
-                    stroke={sel ? "rgba(59,130,246,.22)" : "rgba(100,116,139,.12)"} rx={3}
-                    style={{ cursor: "pointer", pointerEvents: "visible" }}
-                    onClick={e => { e.stopPropagation(); setTutSelectedId(pk.id); setHasSelectedPeak(true); }} />;
-                })}
-
                 {/* Confidence fill areas */}
                 {showConf && activeTutPeaks.map(pk => {
                   const isUserPk = pk.id.startsWith("user_");
@@ -1591,6 +1600,21 @@ function TutorialScreen({ vizMode, onDismiss }) {
 
                     {visible && <text x={aPx + 18} y={tpad.t + 20} fontSize={11} fill={sel ? "#1e40af" : "#94a3b8"} fontWeight={sel ? 600 : 400} style={{ pointerEvents: "none" }}>{tutPeakLabel.get(pk.id) || pk.label}</text>}
                   </g>;
+                })}
+
+                {/* Peak region hit targets — last so they sit on top and receive clicks */}
+                {activeTutPeaks.map(pk => {
+                  const x0 = Math.max(txScale(pk.userStart), tpad.l), x1 = Math.min(txScale(pk.userEnd), tpad.l + tPlotW);
+                  if (x1 < tpad.l || x0 > tpad.l + tPlotW) return null;
+                  const sel = pk.id === tutSelectedId, hov = pk.id === tutHoveredId;
+                  return <rect key={`hit${pk.id}`} x={x0} y={tpad.t} width={Math.max(2, x1 - x0)} height={tPlotH}
+                    fill="transparent"
+                    stroke={sel ? "rgba(59,130,246,.4)" : hov ? "rgba(100,116,139,.2)" : "none"}
+                    strokeWidth={sel ? 1.5 : 1}
+                    style={{ cursor: "pointer", pointerEvents: "visible" }}
+                    onPointerEnter={() => { setTutHoveredId(pk.id); setHasHoveredPeak(true); }}
+                    onPointerLeave={() => setTutHoveredId(null)}
+                    onClick={e => { e.stopPropagation(); const nextId = pk.id === tutSelectedId ? null : pk.id; setTutSelectedId(nextId); setHasSelectedPeak(true); if (nextId) { const mid = pk.userApex; const w = tutDomain[1] - tutDomain[0]; setTutDomain([mid - w/2, mid + w/2]); } }} />;
                 })}
               </svg>
 
@@ -2588,6 +2612,17 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
       .map((p, i) => `${i === 0 ? 'M' : 'L'}${fCtxXScale(p[0]).toFixed(1)},${fCtxYScale(p[1]).toFixed(1)}`).join(' ');
   }, [displayData, fCtxXScale, fCtxYScale]);
 
+  // Keep refs to hot-path scale functions so the pointer-move handler never
+  // closes over stale values — avoids the handle lag/jump on each re-render.
+  const fxInvRef = useRef(fxInv);
+  const fxScaleRef = useRef(fxScale);
+  const fpadRef = useRef(fpad);
+  const fplotWRef = useRef(fplotW);
+  useEffect(() => { fxInvRef.current = fxInv; }, [fxInv]);
+  useEffect(() => { fxScaleRef.current = fxScale; }, [fxScale]);
+  useEffect(() => { fpadRef.current = fpad; }, [fpad]);
+  useEffect(() => { fplotWRef.current = fplotW; }, [fplotW]);
+
   // svgCallbackRef attaches the wheel listener the moment the SVG element
   // enters the DOM — fixes the race condition where useEffect([]) ran before
   // the SVG was mounted and the listener never attached.
@@ -2603,7 +2638,7 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
     el.addEventListener('wheel', handler, { passive: false });
   }, []);
 
-  // fGetSvgX must apply the viewBox→CSS scale factor so handle drags track the cursor.
+  // fGetSvgX converts clientX to SVG viewBox coordinates.
   const fGetSvgX = useCallback(e => {
     const r = svgRef.current?.getBoundingClientRect();
     if (!r) return 0;
@@ -2634,20 +2669,22 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
   }, [domain, fxInv, xMax, xMin]);
 
   const fOnSvgPointerDown = useCallback(e => {
-    // Don't start a pan if the user clicked on a badge, icon, or handle — those
-    // have their own click/pointerdown handlers and setPointerCapture would swallow them.
     let el = e.target;
     while (el && el !== e.currentTarget) {
       const track = el.dataset?.track;
       if (track && (track.includes('confidence') || track.includes('icon') || track.includes('handle') || track.includes('peak_icon'))) return;
       el = el.parentElement;
     }
-    // Convert click position to chart data coordinates for logging
     const r = svgRef.current?.getBoundingClientRect();
     const scale = r ? FW / r.width : 1;
     const svgPx = r ? (e.clientX - r.left) * scale : 0;
     const chartX = fxInv(svgPx);
-    dragStateRef.current = { type: 'pan', startX: e.clientX, startDomain: [...domain], clickChartX: chartX };
+
+    // Select the peak whose apex is closest to the click position.
+    // This is evaluated on pointerUp (not here) so we can tell if it was a click vs pan.
+
+    // Store click position for potential peak selection on pointer up
+    dragStateRef.current = { type: 'pan', startX: e.clientX, startDomain: [...domain], clickChartX: chartX, hasMoved: false };
     svgRef.current?.setPointerCapture(e.pointerId);
   }, [domain, fxInv]);
 
@@ -2657,14 +2694,20 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
       const r = svgRef.current?.getBoundingClientRect();
       const scale = r ? FW / r.width : 1;
       const dx = (e.clientX - d.startX) * scale;
-      const dD = -(dx / fplotW) * (d.startDomain[1] - d.startDomain[0]);
+      const dD = -(dx / fplotWRef.current) * (d.startDomain[1] - d.startDomain[0]);
       let a = d.startDomain[0] + dD, b = d.startDomain[1] + dD; const w = b - a;
       if (a < xMin) { a = xMin; b = a + w; } if (b > xMax) { b = xMax; a = b - w; }
       setDomain([a, b]);
       if (!d.hasMoved && Math.abs(dx) > 4) d.hasMoved = true;
     }
     if (d.type === 'handle') {
-      const xVal = fxInv(Math.max(fpad.l, Math.min(fpad.l + fplotW, fGetSvgX(e))));
+      // Use refs so we always have the current scale without stale closures.
+      const pad = fpadRef.current, pw = fplotWRef.current;
+      const svgX = (() => {
+        const r = svgRef.current?.getBoundingClientRect();
+        return r ? (e.clientX - r.left) * (FW / r.width) : 0;
+      })();
+      const xVal = fxInvRef.current(Math.max(pad.l, Math.min(pad.l + pw, svgX)));
       setAnnotations(prev => prev.map(a => {
         if (a.id !== d.peakId) return a;
         const u = { ...a };
@@ -2675,7 +2718,7 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
       }));
       forceRender(n => n + 1);
     }
-  }, [fplotW, xMin, xMax, fxInv, fGetSvgX, setAnnotations]);
+  }, [xMin, xMax, setAnnotations]);
 
   const fOnSvgPointerUp = useCallback(e => {
     const ds = dragStateRef.current;
@@ -2694,19 +2737,22 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
       });
     } else if (ds?.type === 'pan') {
       if (ds.hasMoved) {
-        // Log completed pan
         logEdit("pan", null, {
           domainBefore: ds.startDomain,
           domainAfter: [...domain],
         });
       } else {
-        // It was a click, not a pan — log chart_click with data coordinates
-        logEdit("chart_click", null, {
-          chartX: ds.clickChartX,
-          pixelX: e.clientX,
-          pixelY: e.clientY,
-          wasPan: false,
-        });
+        // True click (no drag) — select closest peak by apex
+        const chartX = ds.clickChartX;
+        if (activePeaks.length > 0) {
+          const hit = activePeaks.reduce((a, b) => Math.abs(a.userApex - chartX) <= Math.abs(b.userApex - chartX) ? a : b);
+          const nextId = hit.id === selectedPeakId ? null : hit.id;
+          setSelectedPeakId(nextId);
+          if (nextId) { const mid = hit.userApex; const w = domain[1] - domain[0]; setDomain([mid - w/2, mid + w/2]); }
+          logEdit("select_peak", hit.id, { via: "region", start: hit.userStart, apex: hit.userApex, end: hit.userEnd });
+        } else {
+          logEdit("chart_click", null, { chartX, pixelX: e.clientX, pixelY: e.clientY, wasPan: false });
+        }
       }
     }
     dragStateRef.current = null;
@@ -2853,20 +2899,6 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
             <text x={fpad.l + fplotW / 2} y={FH - 2} textAnchor="middle" fontSize={12} fontWeight={600} fill="#64748b">Time</text>
             <text x={13} y={fpad.t + fplotH / 2} textAnchor="middle" fontSize={12} fontWeight={600} fill="#64748b" transform={`rotate(-90,13,${fpad.t + fplotH / 2})`}>Intensity</text>
 
-            {/* Shaded regions — only when hovered or selected */}
-            {activePeaks.map(pk => {
-              const x0 = Math.max(fxScale(pk.userStart), fpad.l), x1 = Math.min(fxScale(pk.userEnd), fpad.l + fplotW);
-              if (x1 < fpad.l || x0 > fpad.l + fplotW) return null;
-              const sel = pk.id === selectedPeakId, hov = pk.id === hoveredPeakId;
-              if (!sel && !hov) return null;
-              return <rect key={`s${pk.id}`} x={x0} y={fpad.t} width={Math.max(2, x1 - x0)} height={fplotH}
-                data-track="peak_shaded_region" data-peak-id={pk.id}
-                fill={sel ? "rgba(59,130,246,.09)" : "rgba(100,116,139,.05)"}
-                stroke={sel ? "rgba(59,130,246,.22)" : "rgba(100,116,139,.12)"} rx={3}
-                style={{ cursor: "pointer", pointerEvents: "visible" }}
-                onClick={e => { e.stopPropagation(); setSelectedPeakId(pk.id); logEdit("select_peak", pk.id, { via: "region", start: pk.userStart, apex: pk.userApex, end: pk.userEnd }); }} />;
-            })}
-
             {/* Confidence fill areas — rendered BELOW the chromatogram line */}
             {fillMode && showConf && activePeaks.map(pk => {
               const isUserPk = pk.id.startsWith("user_");
@@ -2985,6 +3017,23 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
                 {/* Peak label — hovered or selected */}
                 {visible && <text x={aPx + 18} y={fpad.t + 20} fontSize={11} fill={sel ? "#1e40af" : "#94a3b8"} fontWeight={sel ? 600 : 400} style={{ pointerEvents: "none" }}>{peakLabel.get(pk.id) || pk.label}</text>}
               </g>;
+            })}
+
+            {/* Peak region hit targets — rendered LAST so they sit on top and
+                always receive clicks regardless of what's underneath. Transparent
+                fill so they don't obscure the signal or badges visually. */}
+            {activePeaks.map(pk => {
+              const x0 = Math.max(fxScale(pk.userStart), fpad.l), x1 = Math.min(fxScale(pk.userEnd), fpad.l + fplotW);
+              if (x1 < fpad.l || x0 > fpad.l + fplotW) return null;
+              const sel = pk.id === selectedPeakId, hov = pk.id === hoveredPeakId;
+              return <rect key={`hit${pk.id}`} x={x0} y={fpad.t} width={Math.max(2, x1 - x0)} height={fplotH}
+                data-track="peak_shaded_region" data-peak-id={pk.id}
+                fill="transparent"
+                stroke={sel ? "rgba(59,130,246,.4)" : hov ? "rgba(100,116,139,.2)" : "none"}
+                strokeWidth={sel ? 1.5 : 1}
+                style={{ cursor: "pointer", pointerEvents: "visible" }}
+                onPointerEnter={() => beginHover(pk.id)} onPointerLeave={() => endHover(false)}
+                onClick={e => { e.stopPropagation(); endHover(true); const nextId = pk.id === selectedPeakId ? null : pk.id; setSelectedPeakId(nextId); if (nextId) { const mid = pk.userApex; const w = domain[1] - domain[0]; setDomain([mid - w/2, mid + w/2]); } logEdit("select_peak", pk.id, { via: "region", start: pk.userStart, apex: pk.userApex, end: pk.userEnd }); }} />;
             })}
           </svg>
 
