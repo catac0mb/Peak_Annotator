@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
-import { initializeApp } from "firebase/app";
-import { getFirestore, collection, addDoc } from "firebase/firestore";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 // ── Firebase setup (outside component so it's only initialized once) ──
 const firebaseConfig = {
@@ -2537,24 +2537,14 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
     };
   };
 
-  // ── Export (standalone, without surveys) ──
-  const exportResults = async () => {
+  // ── Export (standalone, without surveys) — local download only ──
+  const exportResults = () => {
     const results = buildResults();
-    try {
-      await addDoc(collection(db, "annotations"), {
-        submittedAt: new Date(),
-        userName,
-        data: results,
-      });
-      setExported(true);
-    } catch (err) {
-      console.error("Firebase upload failed, falling back to local download:", err);
-      const blob = new Blob([JSON.stringify(results, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a"); a.href = url; a.download = `annotations_${userName.replace(/\s+/g, '_')}.json`; a.click();
-      URL.revokeObjectURL(url);
-      setExported(true);
-    }
+    const blob = new Blob([JSON.stringify(results, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `annotations_${userName.replace(/\s+/g, '_')}.json`; a.click();
+    URL.revokeObjectURL(url);
+    setExported(true);
   };
 
   // ── Proceed to surveys ──
