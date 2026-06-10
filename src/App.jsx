@@ -1,4 +1,19 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
+import { initializeApp } from "firebase/app";
+import { getFirestore, collection, addDoc } from "firebase/firestore";
+
+// ── Firebase setup (outside component so it's only initialized once) ──
+const firebaseConfig = {
+  apiKey: "AIzaSyDuefs2xnxDA6hBPc7I9Eog5ruidFJy-Rk",
+  authDomain: "ai-confidence-study.firebaseapp.com",
+  projectId: "ai-confidence-study",
+  storageBucket: "ai-confidence-study.firebasestorage.app",
+  messagingSenderId: "884663245000",
+  appId: "1:884663245000:web:1d2a6b70ebc47137f7adfd",
+  measurementId: "G-X8B2QV7YS0",
+};
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp);
 
 // ── Parsers ──
 function parseCSV(text) {
@@ -2523,13 +2538,23 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
   };
 
   // ── Export (standalone, without surveys) ──
-  const exportResults = () => {
+  const exportResults = async () => {
     const results = buildResults();
-    const blob = new Blob([JSON.stringify(results, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = `annotations_${userName.replace(/\s+/g, '_')}.json`; a.click();
-    URL.revokeObjectURL(url);
-    setExported(true);
+    try {
+      await addDoc(collection(db, "annotations"), {
+        submittedAt: new Date(),
+        userName,
+        data: results,
+      });
+      setExported(true);
+    } catch (err) {
+      console.error("Firebase upload failed, falling back to local download:", err);
+      const blob = new Blob([JSON.stringify(results, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = `annotations_${userName.replace(/\s+/g, '_')}.json`; a.click();
+      URL.revokeObjectURL(url);
+      setExported(true);
+    }
   };
 
   // ── Proceed to surveys ──
@@ -3820,11 +3845,18 @@ function StudyFlow({ session }) {
       partialExport.surveys.feedback = { responses: feedbackResults };
     }
 
-    // Download partial results
-    const blob = new Blob([JSON.stringify(partialExport, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = `study_results_${session.userName.replace(/\s+/g, '_')}_partial.json`; a.click();
-    URL.revokeObjectURL(url);
+    // Upload partial results to Firebase, with local download as fallback
+    addDoc(collection(db, "study_results"), {
+      submittedAt: new Date(),
+      userName: session.userName,
+      data: partialExport,
+    }).catch(err => {
+      console.error("Firebase upload failed, falling back to local download:", err);
+      const blob = new Blob([JSON.stringify(partialExport, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = `study_results_${session.userName.replace(/\s+/g, '_')}_partial.json`; a.click();
+      URL.revokeObjectURL(url);
+    });
 
     setPhase("complete");
   }, [phase, annotationResults, nasaTlxResults, feedbackResults, session.userName]);
@@ -3939,11 +3971,18 @@ function StudyFlow({ session }) {
       },
     };
 
-    // Download
-    const blob = new Blob([JSON.stringify(finalResults, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = `study_results_${session.userName.replace(/\s+/g, '_')}.json`; a.click();
-    URL.revokeObjectURL(url);
+    // Upload to Firebase, with local download as fallback
+    addDoc(collection(db, "study_results"), {
+      submittedAt: new Date(),
+      userName: session.userName,
+      data: finalResults,
+    }).catch(err => {
+      console.error("Firebase upload failed, falling back to local download:", err);
+      const blob = new Blob([JSON.stringify(finalResults, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = `study_results_${session.userName.replace(/\s+/g, '_')}.json`; a.click();
+      URL.revokeObjectURL(url);
+    });
 
     setPhase("complete");
   };
