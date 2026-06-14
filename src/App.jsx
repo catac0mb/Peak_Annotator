@@ -695,6 +695,7 @@ function WelcomeScreen({ onStart }) {
   };
 
   const vizOptions = [
+    { id: "no_ai", label: "No AI", desc: "No AI suggestions — label all peaks yourself from scratch" },
     { id: "peaks_only", label: "AI Peaks Only", desc: "AI-detected peak regions shown, but no confidence scores or explanations" },
     { id: "confidence", label: "Confidence Icons", desc: "Color-coded confidence circles above each detected peak" },
     { id: "threshold_bars", label: "Confidence + Threshold Bars", desc: "Confidence icons plus visual bars showing how far each peak's prominence, width, and height are from the detection threshold" },
@@ -837,7 +838,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
   const [step, setStep] = useState(0);
   const [completedSteps, setCompletedSteps] = useState(new Set());
 
-  const isAICondition = vizMode !== "none";
+  const isAICondition = vizMode !== "none" && vizMode !== "no_ai";
 
   // Tutorial chart state
   const tutData = useMemo(() => generateTutorialData(), []);
@@ -1368,7 +1369,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
   }, [tutData, txScale, tyScale, tpad.t, tPlotH]);
 
   // Tutorial-specific task steps for the task banner
-  const tutTaskSteps = vizMode === "none"
+  const tutTaskSteps = vizMode === "none" || vizMode === "no_ai"
     ? [
         { n: 1, label: "Find peaks", desc: "Look for signal rises above the baseline" },
         { n: 2, label: "Add each one", desc: "Click \"+ Add Peak\" then drag handles to fit" },
@@ -1843,7 +1844,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
 // ══════════════════════════════════════════
 //  SCREEN 3: Annotation
 // ══════════════════════════════════════════
-function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit }) {
+function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudyComplete, onQuit }) {
   const [currentIdx, setCurrentIdx] = useState(0);
   const [selectedPeakId, setSelectedPeakId] = useState(null);
   const [hoveredPeakId, setHoveredPeakId] = useState(null);
@@ -1855,7 +1856,7 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
   const [allAnnotations, setAllAnnotations] = useState(() =>
     datasets.map(ds => {
       // In "none" mode, start blank — no AI detections shown
-      if (vizMode === "none") return [];
+      if (vizMode === "none" || vizMode === "no_ai") return [];
       return ds.peaks.map((p, i) => ({
         ...p, label: `Peak @ ${fmt(p.apex)}`, userStart: p.start, userEnd: p.end, userApex: p.apex, deleted: false,
       }));
@@ -2375,7 +2376,7 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
       // what fraction of those initial peaks are still present and unmodified
       // at export time? (Undefined for "none" mode, which starts blank.)
       let aiStats = null;
-      if (vizMode !== "none" && d.peaks.length > 0) {
+      if (vizMode !== "none" && vizMode !== "no_ai" && d.peaks.length > 0) {
         const originalIds = new Set(d.peaks.map(p => p.id));
         let accepted = 0, modified = 0, deleted = 0;
         const byId = new Map(ap_all.map(a => [a.id, a]));
@@ -2487,6 +2488,9 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
 
     return {
       userName,
+      prolificPid: prolificParams?.prolificPid ?? null,
+      studyId: prolificParams?.studyId ?? null,
+      sessionId: prolificParams?.sessionId ?? null,
       visualizationMode: vizMode,
       sessionDurationMs: now,
 
@@ -2564,9 +2568,9 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
 
   // ── derived display flags ──────────────────────────────────────────────────
   // showConf: whether to show AI confidence icons/scores on the chart
-  const showConf = vizMode !== "none" && vizMode !== "peaks_only";
+  const showConf = vizMode !== "none" && vizMode !== "no_ai" && vizMode !== "peaks_only";
   // isAICondition: whether AI peaks are pre-loaded (includes peaks_only)
-  const isAICondition = vizMode !== "none";
+  const isAICondition = vizMode !== "none" && vizMode !== "no_ai";
   const isLastChrom = currentIdx === datasets.length - 1;
 
   // Always show both fill area AND badge (no toggle needed)
@@ -2581,7 +2585,7 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
   const selIsUserPeak = selPeak?.id?.startsWith("user_");
 
   // Task banner copy (condition-aware)
-  const taskSteps = vizMode === "none"
+  const taskSteps = vizMode === "none" || vizMode === "no_ai"
     ? [
         { n: 1, label: "Find peaks", desc: "Look for signal rises above the baseline" },
         { n: 2, label: "Add each one", desc: "Click \"+ Add Peak\" then drag handles to fit" },
@@ -2603,7 +2607,7 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
   const actionInfo = {
     keep: { label: "Keep Peak", emoji: "✓", color: "#059669", bg: "#ecfdf5", border: "#6ee7b7", desc: "The boundaries look correct — accept this detection as-is." },
     edit: { label: "Edit Boundaries", emoji: "✏", color: "#1e40af", bg: "#eff6ff", border: "#93c5fd", desc: "Drag the ◀ Start, ◆ Apex, and ▶ End handles below the chart to adjust where the peak begins and ends." },
-    remove: { label: "Remove Peak", emoji: "✕", color: "#dc2626", bg: "#fef2f2", border: "#fca5a5", desc: vizMode === "none" ? "Delete this peak if it does not belong here." : "Delete this detection if it is NOT a real peak (false positive)." },
+    remove: { label: "Remove Peak", emoji: "✕", color: "#dc2626", bg: "#fef2f2", border: "#fca5a5", desc: vizMode === "none" || vizMode === "no_ai" ? "Delete this peak if it does not belong here." : "Delete this detection if it is NOT a real peak (false positive)." },
   };
 
   // Chart dimensions — full-width responsive via viewBox
@@ -3115,23 +3119,23 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
           <div style={{ padding: "10px 16px", borderBottom: "1px solid #e5e7eb", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
               <span style={{ fontSize: 13, fontWeight: 700, color: "#1e293b" }}>
-                {vizMode === "none" ? "Your Peaks" : "Detected Peaks"}
+                {vizMode === "none" || vizMode === "no_ai" ? "Your Peaks" : "Detected Peaks"}
               </span>
               <span style={{ fontSize: 11, color: "#94a3b8", marginLeft: 8 }}>
-                {vizMode === "none"
+                {vizMode === "none" || vizMode === "no_ai"
                   ? "Click a peak to select and edit it, or add one below"
                   : "Click any peak to inspect it — then confirm, edit, or remove it below"}
               </span>
             </div>
             <button onClick={addPeak} data-track="add_peak_button"
               style={{ padding: "6px 14px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", border: "2px solid #059669", background: "#ecfdf5", color: "#059669", whiteSpace: "nowrap", flexShrink: 0 }}>
-              {vizMode === "none" ? "+ Add Peak" : "+ Add Missed Peak"}
+              {vizMode === "none" || vizMode === "no_ai" ? "+ Add Peak" : "+ Add Missed Peak"}
             </button>
           </div>
 
           {activePeaks.length === 0 && annotations.filter(a => a.deleted).length === 0 ? (
             <div style={{ padding: "20px 16px", fontSize: 12, color: "#94a3b8", textAlign: "center" }}>
-              {vizMode === "none" ? "No peaks yet — use the button above to add one." : "No peaks detected in this chromatogram."}
+              {vizMode === "none" || vizMode === "no_ai" ? "No peaks yet — use the button above to add one." : "No peaks detected in this chromatogram."}
             </div>
           ) : (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "10px 14px" }}>
@@ -3236,7 +3240,7 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
               {/* Actions */}
               <div style={{ padding: "10px 16px", display: "flex", gap: 8 }}>
                 <div style={{ flex: 1, fontSize: 11, color: "#64748b", lineHeight: 1.5, alignSelf: "center" }}>
-                  {vizMode !== "none" && !selIsUserPeak
+                  {vizMode !== "none" && vizMode !== "no_ai" && !selIsUserPeak
                     ? "Drag the \u25C0 Start, \u25C6 Apex, \u25B6 End handles on the chart to adjust boundaries. If this is not a real peak, remove it."
                     : "Drag the \u25C0 Start, \u25C6 Apex, \u25B6 End handles on the chart to adjust boundaries."}
                 </div>
@@ -3251,10 +3255,10 @@ function AnnotationScreen({ datasets, vizMode, userName, onStudyComplete, onQuit
             <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", padding: "20px 18px", textAlign: "center", color: "#94a3b8" }}>
               <div style={{ fontSize: 28, marginBottom: 8 }}>☝</div>
               <div style={{ fontSize: 13, fontWeight: 600, color: "#475569", marginBottom: 4 }}>
-                {vizMode === "none" ? "Select a peak to edit it" : "Select a peak to review it"}
+                {vizMode === "none" || vizMode === "no_ai" ? "Select a peak to edit it" : "Select a peak to review it"}
               </div>
               <div style={{ fontSize: 11, lineHeight: 1.5 }}>
-                {vizMode === "none"
+                {vizMode === "none" || vizMode === "no_ai"
                   ? "Click any peak chip above or click a peak badge on the chart to select it. Then drag the handles to adjust its boundaries."
                   : "Click a numbered badge on the chart or a peak chip above. Then decide: keep, edit, or remove it."}
               </div>
@@ -3739,16 +3743,34 @@ function DemographicsSurvey({ onComplete, onQuit }) {
 // ══════════════════════════════════════════
 //  Completion Screen
 // ══════════════════════════════════════════
-function CompletionScreen() {
+function CompletionScreen({ uploadSucceeded }) {
+  const PROLIFIC_CODE = "CEJ155DD";
   return (
     <div style={{ fontFamily: "'IBM Plex Sans',system-ui,sans-serif", background: "linear-gradient(160deg,#f0f4ff 0%,#f8f9fb 40%,#faf5ff 100%)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div style={{ maxWidth: 480, width: "100%", textAlign: "center", padding: 32 }}>
-        <div style={{ fontSize: 56, marginBottom: 16 }}>&#10003;</div>
-        <h1 style={{ fontSize: 28, fontWeight: 800, color: "#059669", marginBottom: 8 }}>Study Complete</h1>
-        <p style={{ fontSize: 15, color: "#64748b", lineHeight: 1.6 }}>
-          Thank you for participating! Your results have been exported and downloaded as a JSON file. You may now close this window.
-        </p>
-        <div style={{ marginTop: 24, padding: "16px 20px", background: "#f8fafc", borderRadius: 10, border: "1px solid #e5e7eb" }}>
+        {!uploadSucceeded ? (
+          <>
+            <div style={{ fontSize: 40, marginBottom: 16 }}>⏳</div>
+            <h1 style={{ fontSize: 24, fontWeight: 800, color: "#1e293b", marginBottom: 8 }}>Saving your results…</h1>
+            <p style={{ fontSize: 15, color: "#64748b", lineHeight: 1.6 }}>
+              Please wait while your data is uploaded. Your completion code will appear here once it's saved.
+            </p>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 56, marginBottom: 16 }}>&#10003;</div>
+            <h1 style={{ fontSize: 28, fontWeight: 800, color: "#059669", marginBottom: 8 }}>Study Complete</h1>
+            <p style={{ fontSize: 15, color: "#64748b", lineHeight: 1.6, marginBottom: 24 }}>
+              Thank you for participating! Your results have been saved.
+            </p>
+            <div style={{ padding: "20px 24px", background: "#f0fdf4", borderRadius: 12, border: "2px solid #86efac", marginBottom: 20 }}>
+              <p style={{ fontSize: 13, fontWeight: 700, color: "#166534", margin: "0 0 8px 0", textTransform: "uppercase", letterSpacing: "0.05em" }}>Your Prolific Completion Code</p>
+              <p style={{ fontSize: 32, fontWeight: 900, color: "#15803d", margin: 0, letterSpacing: "0.1em" }}>{PROLIFIC_CODE}</p>
+              <p style={{ fontSize: 12, color: "#4ade80", marginTop: 8, marginBottom: 0 }}>Copy this code and paste it into Prolific to receive your payment.</p>
+            </div>
+          </>
+        )}
+        <div style={{ marginTop: 16, padding: "16px 20px", background: "#f8fafc", borderRadius: 10, border: "1px solid #e5e7eb" }}>
           <p style={{ fontSize: 13, color: "#475569", lineHeight: 1.6, margin: 0 }}>
             If you have any questions or comments about this study, please contact us at{" "}
             <a href="mailto:jcaitlin@wustl.edu" style={{ color: "#1e40af", fontWeight: 600, textDecoration: "none" }}>jcaitlin@wustl.edu</a>
@@ -3763,7 +3785,17 @@ function CompletionScreen() {
 export default function App() {
   const [session, setSession] = useState(null);
 
-  if (!session) return <WelcomeScreen onStart={setSession} />;
+  // Parse Prolific URL params once on load
+  const prolificParams = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      prolificPid: params.get("PROLIFIC_PID") || null,
+      studyId: params.get("STUDY_ID") || null,
+      sessionId: params.get("SESSION_ID") || null,
+    };
+  }, []);
+
+  if (!session) return <WelcomeScreen onStart={(s) => setSession({ ...s, ...prolificParams })} />;
   return <StudyFlow session={session} />;
 }
 
@@ -3774,6 +3806,7 @@ function StudyFlow({ session }) {
   const [annotationResults, setAnnotationResults] = useState(null);
   const [nasaTlxResults, setNasaTlxResults] = useState(null);
   const [feedbackResults, setFeedbackResults] = useState(null);
+  const [uploadSucceeded, setUploadSucceeded] = useState(false);
 
   const handleAnnotationDone = (results) => {
     setAnnotationResults(results);
@@ -3851,7 +3884,7 @@ function StudyFlow({ session }) {
     setPhase("complete");
   }, [phase, annotationResults, nasaTlxResults, feedbackResults, session.userName]);
 
-  const handleDemographicsDone = (demographicsResponses) => {
+  const handleDemographicsDone = async (demographicsResponses) => {
     // Build final export
     const nasaTlx = nasaTlxResults;
     const feedbackResponses = feedbackResults;
@@ -3962,23 +3995,27 @@ function StudyFlow({ session }) {
     };
 
     // Upload to Firebase, with local download as fallback
-    addDoc(collection(db, "study_results"), {
-      submittedAt: new Date(),
-      userName: session.userName,
-      data: finalResults,
-    }).catch(err => {
-      console.error("Firebase upload failed, falling back to local download:", err);
+    try {
+      await addDoc(collection(db, "study_results"), {
+        submittedAt: new Date(),
+        userName: session.userName,
+        data: finalResults,
+      });
+      setUploadSucceeded(true);
+    } catch (err) {
+      console.error("Firebase upload failed:", err);
+      alert(`Firebase error (falling back to local download): ${err.message}`);
       const blob = new Blob([JSON.stringify(finalResults, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a"); a.href = url; a.download = `study_results_${session.userName.replace(/\s+/g, '_')}.json`; a.click();
       URL.revokeObjectURL(url);
-    });
+    }
 
     setPhase("complete");
   };
 
   if (phase === "annotate") {
-    return <AnnotationScreen datasets={session.datasets} vizMode={session.vizMode} userName={session.userName} onStudyComplete={handleAnnotationDone} onQuit={(results) => handleQuit(results)} />;
+    return <AnnotationScreen datasets={session.datasets} vizMode={session.vizMode} userName={session.userName} prolificParams={{ prolificPid: session.prolificPid, studyId: session.studyId, sessionId: session.sessionId }} onStudyComplete={handleAnnotationDone} onQuit={(results) => handleQuit(results)} />;
   }
   if (phase === "nasa_tlx") {
     return <NasaTlxSurvey onComplete={handleNasaDone} onQuit={() => handleQuit()} />;
@@ -3989,5 +4026,5 @@ function StudyFlow({ session }) {
   if (phase === "demographics") {
     return <DemographicsSurvey onComplete={handleDemographicsDone} onQuit={() => handleQuit()} />;
   }
-  return <CompletionScreen />;
+  return <CompletionScreen uploadSucceeded={uploadSucceeded} />;
 }
