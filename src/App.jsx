@@ -1469,10 +1469,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
             }} />
           ))}
         </div>
-        <button onClick={onDismiss}
-          style={{ padding: "5px 14px", borderRadius: 7, border: "1px solid rgba(255,255,255,.25)", background: "rgba(52,211,153,.2)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-          Skip Tutorial →
-        </button>
+
       </div>
 
       {/* ── Task reminder banner ── */}
@@ -1912,7 +1909,6 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
   const [showTutorial, setShowTutorial] = useState(true);
   const [, forceRender] = useState(0);
   const [tick, setTick] = useState(0);
-  const [exported, setExported] = useState(false);
 
   const [allAnnotations, setAllAnnotations] = useState(() =>
     datasets.map(ds => {
@@ -2606,14 +2602,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
   };
 
   // ── Export (standalone, without surveys) — local download only ──
-  const exportResults = () => {
-    const results = buildResults();
-    const blob = new Blob([JSON.stringify(results, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = `annotations_${userName.replace(/\s+/g, '_')}.json`; a.click();
-    URL.revokeObjectURL(url);
-    setExported(true);
-  };
+
 
   // ── Proceed to surveys ──
   const proceedToSurveys = () => {
@@ -2931,10 +2920,6 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
           </div>
         </div>
 
-        <button onClick={exportResults} data-track="export_results"
-          style={{ padding: "5px 13px", borderRadius: 7, border: "1px solid rgba(255,255,255,.25)", background: exported ? "rgba(34,197,94,.3)" : "rgba(59,130,246,.18)", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
-          {exported ? "✓ Exported" : "Export Results"}
-        </button>
         <button onClick={() => setShowTutorial(true)} data-track="open_tutorial"
           style={{ padding: "5px 10px", borderRadius: 7, border: "1px solid rgba(255,255,255,.18)", background: "rgba(255,255,255,.05)", color: "rgba(255,255,255,.55)", fontSize: 11, cursor: "pointer" }}>?</button>
         <button onClick={() => { if (window.confirm("Are you sure you want to quit the study? Your progress so far will be saved and exported.")) { const results = buildResults(); onQuit(results); } }} data-track="quit_study"
@@ -3802,7 +3787,7 @@ function DemographicsSurvey({ onComplete, onQuit }) {
 
         <button onClick={() => { if (allAnswered) { const out = {}; DEMO_QUESTIONS.forEach(q => { if (q.type === "open") { out[q.id] = responses[q.id]; } else { out[q.id] = responses[q.id] === "Other" ? `Other: ${otherText[q.id]}` : responses[q.id]; } }); onComplete(out); } }} disabled={!allAnswered}
           style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: allAnswered ? "#059669" : "#94a3b8", color: "#fff", fontSize: 15, fontWeight: 700, cursor: allAnswered ? "pointer" : "not-allowed", marginTop: 20 }}>
-          End Study &amp; Export Results
+          Submit &amp; Finish Study
         </button>
         <button onClick={() => { if (window.confirm("Are you sure you want to quit the study? Your progress so far will be saved and exported.")) onQuit(); }}
           style={{ width: "100%", padding: "10px", borderRadius: 10, border: "1px solid #fca5a5", background: "#fef2f2", color: "#dc2626", fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 8 }}>
@@ -3941,17 +3926,13 @@ function StudyFlow({ session }) {
       partialExport.surveys.feedback = { responses: feedbackResults };
     }
 
-    // Upload partial results to Firebase, with local download as fallback
+    // Upload partial results to Firebase silently — no local download fallback
     addDoc(collection(db, "study_results"), {
       submittedAt: new Date(),
       userName: session.userName,
       data: partialExport,
     }).catch(err => {
-      console.error("Firebase upload failed, falling back to local download:", err);
-      const blob = new Blob([JSON.stringify(partialExport, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a"); a.href = url; a.download = `study_results_${session.userName.replace(/\s+/g, '_')}_partial.json`; a.click();
-      URL.revokeObjectURL(url);
+      console.error("Firebase upload failed (quit early):", err);
     });
 
     setPhase("complete");
@@ -4067,7 +4048,7 @@ function StudyFlow({ session }) {
       },
     };
 
-    // Upload to Firebase, with local download as fallback
+    // Upload to Firebase — this is the only export path
     try {
       await addDoc(collection(db, "study_results"), {
         submittedAt: new Date(),
@@ -4077,11 +4058,9 @@ function StudyFlow({ session }) {
       setUploadSucceeded(true);
     } catch (err) {
       console.error("Firebase upload failed:", err);
-      alert(`Firebase error (falling back to local download): ${err.message}`);
-      const blob = new Blob([JSON.stringify(finalResults, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a"); a.href = url; a.download = `study_results_${session.userName.replace(/\s+/g, '_')}.json`; a.click();
-      URL.revokeObjectURL(url);
+      // No local download fallback — log the error silently and still
+      // advance to completion so the participant can receive their code.
+      setUploadSucceeded(false);
     }
 
     setPhase("complete");
