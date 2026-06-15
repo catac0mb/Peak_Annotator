@@ -217,96 +217,7 @@ function ThresholdBar({ label, pct, width: barWidth = 180 }) {
     </div>
   );
 }
-const iou = (a, b) => { const s = Math.max(a.start, b.start), e = Math.min(a.end, b.end); if (e <= s) return 0; const i = e - s; return i / ((a.end - a.start) + (b.end - b.start) - i); };
-
-// Compute annotation accuracy against ground truth.
-//
-// Matching: one-to-one. We iteratively take the (gt, user) pair with the
-// highest IoU among pairs where both are still unmatched, and lock them in.
-// This prevents a single user peak from being credited as the "best match"
-// for multiple ground-truth peaks (which the old greedy version allowed).
-//
-// Metrics returned:
-//  - avgIoU_matched:   mean IoU over matched pairs only. Ignores missed peaks.
-//                      (Preserved under the old name `avgIoU` for backwards
-//                      compat — but see caveats below.)
-//  - avgIoU_overGT:    sum(IoU of matches) / |GT|. Unmatched GT peaks
-//                      contribute 0, so missing peaks DIRECTLY lowers the
-//                      score. This is the metric to use if you care about
-//                      whether participants found all the peaks.
-//  - panopticQuality:  sum(IoU of matches) / (|GT| + |FP|). Penalizes both
-//                      misses AND spurious detections in a single number.
-//                      (PQ-style, bounded in [0, 1].)
-//  - precision/recall/f1AtIoU25: object-detection-style metrics at an
-//                      IoU >= 0.25 match threshold. 0.25 is more appropriate
-//                      than the usual 0.5 for chromatogram peaks, whose
-//                      boundaries are inherently fuzzy.
-//  - fp / fn / matched / total: raw counts.
-function computeAccuracy(peaks, gt) {
-  const up = peaks.map(a => ({ start: a.userStart, end: a.userEnd }));
-
-  // Build all pairwise IoUs above a minimum threshold (prevents trivial
-  // "matches" from overlap of 0.01).
-  const MIN_MATCH_IOU = 0.1;
-  const pairs = [];
-  for (let gi = 0; gi < gt.length; gi++) {
-    for (let ui = 0; ui < up.length; ui++) {
-      const v = iou(gt[gi], up[ui]);
-      if (v > MIN_MATCH_IOU) pairs.push({ gi, ui, iou: v });
-    }
-  }
-  // Sort descending by IoU, then greedily assign — best matches first.
-  // Because each gi/ui can only be used once, this yields a proper 1-to-1
-  // matching that's optimal under greedy-by-max-IoU.
-  pairs.sort((a, b) => b.iou - a.iou);
-
-  const gm = new Set(), um = new Set();
-  const matches = [];
-  for (const p of pairs) {
-    if (gm.has(p.gi) || um.has(p.ui)) continue;
-    gm.add(p.gi); um.add(p.ui);
-    matches.push(p);
-  }
-
-  const matched = matches.length;
-  const totalIoU = matches.reduce((s, m) => s + m.iou, 0);
-  const fp = up.length - um.size;                     // user peaks not matched to any GT
-  const fn = gt.length - gm.size;                     // GT peaks the user missed
-
-  // Core IoU-based metrics.
-  const avgIoU_matched = matched > 0 ? totalIoU / matched : 0;
-  const avgIoU_overGT  = gt.length > 0 ? totalIoU / gt.length : 0;
-  const panopticQuality = (gt.length + fp) > 0 ? totalIoU / (gt.length + fp) : 0;
-
-  // Detection-style metrics at IoU >= 0.25. Chromatogram peak boundaries are
-  // inherently fuzzy (baseline noise, partial co-elution), so 0.5 is often
-  // too strict; 0.25 catches "the user identified the same peak" without
-  // demanding near-perfect boundary agreement.
-  const TP_IOU_THRESHOLD = 0.25;
-  const tp25 = matches.filter(m => m.iou >= TP_IOU_THRESHOLD).length;
-  const fp25 = up.length - tp25;
-  const fn25 = gt.length - tp25;
-  const precision25 = (tp25 + fp25) > 0 ? tp25 / (tp25 + fp25) : 0;
-  const recall25    = (tp25 + fn25) > 0 ? tp25 / (tp25 + fn25) : 0;
-  const f1AtIoU25   = (precision25 + recall25) > 0
-    ? 2 * precision25 * recall25 / (precision25 + recall25)
-    : 0;
-
-  return {
-    // Preserved field name, same semantics as before (matched-only average).
-    // Note: this metric does NOT penalize missed peaks — see avgIoU_overGT.
-    avgIoU: avgIoU_matched,
-    avgIoU_matched,
-    avgIoU_overGT,        // penalizes missed GT peaks
-    panopticQuality,      // penalizes both missed and spurious peaks
-    precisionAtIoU25: precision25,
-    recallAtIoU25: recall25,
-    f1AtIoU25,
-    fp, fn, matched,
-    total: gt.length,
-    totalUserPeaks: up.length,
-  };
-}
+// accuracy metrics removed — recompute from raw logs externally
 
 // Recursively read all files from a dropped folder via File System Access API
 async function readDroppedFolder(dataTransfer) {
@@ -487,7 +398,6 @@ function createTracker() {
     annotationEdits: 0,
     lastActivityTime: Date.now(),
     totalIdleMs: 0,
-    accuracyTimeline: [],
 
     // ── Unified interaction log ──────────────────────────────────────────────
     // Every meaningful user action in chronological order. Each entry has:
@@ -558,6 +468,24 @@ function createTracker() {
 
     // ── Legacy edit log (kept for backwards compat) ──
     editLog: [],                // { type, time, chromIdx, peakId?, peakIndex?, meta? }
+
+    // ── Raw pointer events (pointerdown + pointerup) ──
+    // Distinguishes press from release; includes screen coords, chart coords,
+    // button identity (0=left,1=mid,2=right), and the UI element targeted.
+    pointerEventLog: [],
+
+    // ── Cursor position heatmap — sampled every 500 ms ──
+    cursorSampleLog: [],
+
+    // ── Per-chromatogram final state snapshots ──
+    // Recorded on "Finish" click: peak list + viewport domain at that moment.
+    chromFinalStates: [],
+
+    // ── Periodic annotation snapshots (every 15 s) ──
+    // Raw peak list at each snapshot. Lets you reconstruct the annotation
+    // trajectory even if individual events were missed.
+    // Each entry: { timeMs, chromIdx, peaks: [{ id, start, apex, end, isAIPeak }] }
+    annotationSnapshots: [],
   };
 }
 
@@ -1897,46 +1825,106 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
     return () => clearInterval(iv);
   }, []);
 
-  // Global listeners. The `click` handler now records WHAT was clicked by
-  // inspecting the DOM target for data-track-* attributes — so every button,
-  // peak row, handle, tab, etc. is disambiguated in the log.
+  // ── Helper: screen pixel → chart data coordinates ────────────────────────
+  // Returns { chartX (time), chartY (signal) } or null if outside the plot.
+  // Uses live refs so it never reads stale closure values.
+  const yMaxRef = useRef(yMax);
+  useEffect(() => { yMaxRef.current = yMax; }, [yMax]);
+
+  const screenToChart = useCallback((clientX, clientY) => {
+    const r = svgRef.current?.getBoundingClientRect();
+    if (!r) return null;
+    const svgX = (clientX - r.left) * (FW / r.width);
+    const svgY = (clientY - r.top)  * (FH / r.height);
+    const pad = fpadRef.current, pw = fplotWRef.current, dom = domainRef.current;
+    const plotH = FH - pad.t - 56;
+    if (svgX < pad.l || svgX > pad.l + pw || svgY < pad.t || svgY > pad.t + plotH) return null;
+    return {
+      chartX: dom[0] + ((svgX - pad.l) / pw) * (dom[1] - dom[0]),
+      chartY: ((pad.t + plotH - svgY) / plotH) * yMaxRef.current,
+    };
+  }, []);
+
+  // ── Global pointer + mouse listeners ────────────────────────────────────────
+  const cursorSampleTimerRef = useRef(null);
+  const lastCursorPos = useRef({ x: 0, y: 0 });
+
   useEffect(() => {
     const active = () => { T.lastActivityTime = Date.now(); };
+
+    const recordPointerEvent = (e, eventType) => {
+      const info = describeClickTarget(e.target);
+      const chartCoords = screenToChart(e.clientX, e.clientY);
+      T.pointerEventLog.push({
+        timeMs:   Date.now() - T.sessionStart,
+        chromIdx: currentIdxRef.current,
+        eventType,
+        screenX:  e.clientX,
+        screenY:  e.clientY,
+        chartX:   chartCoords?.chartX ?? null,
+        chartY:   chartCoords?.chartY ?? null,
+        button:   e.button,
+        target:   info.target,
+        peakId:   info.peakId,
+        handle:   info.handle,
+      });
+    };
+
+    const pointerdown = (e) => { T.lastActivityTime = Date.now(); recordPointerEvent(e, "pointerdown"); };
+    const pointerup   = (e) => { recordPointerEvent(e, "pointerup"); };
+
     const click = (e) => {
       const now = Date.now();
       T.totalClicks++;
       T.allClickTimestamps.push(now);
       T.lastActivityTime = now;
       const info = describeClickTarget(e.target);
+      const chartCoords = screenToChart(e.clientX, e.clientY);
       T.clickLog.push({
-        time: now - T.sessionStart,
-        chromIdx: currentIdxRef.current,
-        target: info.target,
-        peakId: info.peakId,
+        time:      now - T.sessionStart,
+        chromIdx:  currentIdxRef.current,
+        target:    info.target,
+        peakId:    info.peakId,
         peakIndex: info.peakIndex,
-        handle: info.handle,
-        x: e.clientX,
-        y: e.clientY,
+        handle:    info.handle,
+        x: e.clientX, y: e.clientY,        // legacy aliases
+        screenX:   e.clientX,
+        screenY:   e.clientY,
+        chartX:    chartCoords?.chartX ?? null,
+        chartY:    chartCoords?.chartY ?? null,
       });
-      // A click on anything peak-related counts as "engaging with" the current
-      // chromatogram, so stamp first-edit time.
-      if (info.target && info.target !== "raw:html" && info.target !== "unknown") {
-        stampFirstEdit();
-      }
+      if (info.target && info.target !== "raw:html" && info.target !== "unknown") stampFirstEdit();
     };
-    window.addEventListener("mousemove", active);
-    window.addEventListener("scroll", active, true);
-    window.addEventListener("wheel", active, { passive: true });
-    window.addEventListener("click", click, true);
-    window.addEventListener("pointerdown", active);
+
+    const mousemove = (e) => {
+      T.lastActivityTime = Date.now();
+      lastCursorPos.current = { x: e.clientX, y: e.clientY };
+    };
+    cursorSampleTimerRef.current = setInterval(() => {
+      T.cursorSampleLog.push({
+        timeMs:   Date.now() - T.sessionStart,
+        chromIdx: currentIdxRef.current,
+        screenX:  lastCursorPos.current.x,
+        screenY:  lastCursorPos.current.y,
+      });
+    }, 500);
+
+    window.addEventListener("mousemove",  mousemove);
+    window.addEventListener("scroll",     active, true);
+    window.addEventListener("wheel",      active, { passive: true });
+    window.addEventListener("pointerdown", pointerdown, true);
+    window.addEventListener("pointerup",   pointerup,   true);
+    window.addEventListener("click",       click,       true);
     return () => {
-      window.removeEventListener("mousemove", active);
-      window.removeEventListener("scroll", active, true);
-      window.removeEventListener("wheel", active);
-      window.removeEventListener("click", click, true);
-      window.removeEventListener("pointerdown", active);
+      window.removeEventListener("mousemove",  mousemove);
+      window.removeEventListener("scroll",     active, true);
+      window.removeEventListener("wheel",      active);
+      window.removeEventListener("pointerdown", pointerdown, true);
+      window.removeEventListener("pointerup",   pointerup,   true);
+      window.removeEventListener("click",       click,       true);
+      clearInterval(cursorSampleTimerRef.current);
     };
-  }, [stampFirstEdit]);
+  }, [stampFirstEdit, screenToChart]);
 
   // ── Per-chromatogram visit tracking ──
   // Open a visit entry when the current chromatogram changes; close the
@@ -1968,17 +1956,18 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
     };
   }, [currentIdx]);
 
-  // Accuracy timeline
+  // ── Periodic annotation snapshot (every 15 s) ──
   useEffect(() => {
     const iv = setInterval(() => {
-      if (groundTruth.length > 0) {
-        const acc = computeAccuracy(activePeaks, groundTruth);
-        T.accuracyTimeline.push({ timeMs: Date.now() - T.sessionStart, chromIdx: currentIdx, ...acc, totalPeaks: activePeaks.length });
-      }
+      const snap = (allAnnotations[currentIdx] || [])
+        .filter(a => !a.deleted)
+        .sort((a, b) => a.userApex - b.userApex)
+        .map(a => ({ id: a.id, start: a.userStart, apex: a.userApex, end: a.userEnd, isAIPeak: !a.id.startsWith("user_") }));
+      T.annotationSnapshots.push({ timeMs: Date.now() - T.sessionStart, chromIdx: currentIdx, peaks: snap });
       setTick(t => t + 1);
-    }, 3000);
+    }, 15000);
     return () => clearInterval(iv);
-  }, [activePeaks, groundTruth, currentIdx]);
+  }, [allAnnotations, currentIdx]);
 
   // Spatial (left-to-right by apex) index of a peak among currently active
   // peaks on the CURRENT chromatogram. Lets us analyze whether users edit
@@ -2232,25 +2221,6 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
       return (n * sxy - sx * sy) / d;
     };
 
-    // ── Accuracy rate-of-change over whole session ──
-    // We compute the slope for multiple accuracy metrics so you can pick the
-    // one that matches the question you're asking:
-    //   rateOfChange         — matched-only avgIoU (legacy; ignores misses)
-    //   rateOfChange_overGT  — avgIoU_overGT (penalizes missed peaks)
-    //   rateOfChange_PQ      — panopticQuality (penalizes misses + spurious)
-    //   rateOfChange_F1      — F1 at IoU 0.25
-    let rateOfChange = null, rateOfChange_overGT = null, rateOfChange_PQ = null, rateOfChange_F1 = null;
-    {
-      const tl = T.accuracyTimeline;
-      if (tl.length >= 2) {
-        const xs = tl.map(p => p.timeMs / 60000);
-        rateOfChange        = linreg(xs, tl.map(p => p.avgIoU ?? 0));
-        rateOfChange_overGT = linreg(xs, tl.map(p => p.avgIoU_overGT ?? 0));
-        rateOfChange_PQ     = linreg(xs, tl.map(p => p.panopticQuality ?? 0));
-        rateOfChange_F1     = linreg(xs, tl.map(p => p.f1AtIoU25 ?? 0));
-      }
-    }
-
     // ── Click frequency buckets (session-wide) ──
     // Divide the session into 30s buckets and count clicks per bucket. The
     // slope of this series answers "does the user click less over time?".
@@ -2296,8 +2266,6 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
     const perChrom = datasets.map((d, i) => {
       const ap = (allAnnotations[i] || []).filter(a => !a.deleted);
       const ap_all = allAnnotations[i] || [];
-      const acc = d.groundTruth.length > 0 ? computeAccuracy(ap, d.groundTruth) : null;
-
       const chromVisits = visits.filter(v => v.chromIdx === i);
       const totalActiveMs = chromVisits.reduce((s, v) => s + (v.exit - v.enter), 0);
       const visitCount = chromVisits.length;
@@ -2435,8 +2403,6 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
           apSorted.forEach((p, idx) => apLabelMap.set(p.id, `Peak @ ${fmt(p.userApex)}`));
           return ap.map(a => ({ id: a.id, label: apLabelMap.get(a.id) || a.label, start: a.userStart, apex: a.userApex, end: a.userEnd, confidence: a.confidence, deleted: !!a.deleted }));
         })(),
-        accuracy: acc,
-        groundTruthCount: d.groundTruth.length,
         visits: chromVisits,                   // raw visit list
       };
     });
@@ -2460,6 +2426,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
     const totalReturnEdits = perChrom.reduce((s, c) => s + c.returnEditCount, 0);
 
     return {
+      _tracker: T,   // stripped before upload; used by StudyFlow to log survey events
       userName,
       prolificPid: prolificParams?.prolificPid ?? null,
       studyId: prolificParams?.studyId ?? null,
@@ -2475,12 +2442,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
       totalAnnotationEdits: T.annotationEdits,
       totalIdleMs: T.totalIdleMs,
       avgInterClickMs: clicks.length > 1 ? totalInterClick / (clicks.length - 1) : 0,
-      accuracyRateOfChange: rateOfChange,                    // matched-only (legacy)
-      accuracyRateOfChange_overGT: rateOfChange_overGT,      // penalizes missed peaks
-      accuracyRateOfChange_panoptic: rateOfChange_PQ,        // penalizes miss + spurious
-      accuracyRateOfChange_F1: rateOfChange_F1,              // F1 at IoU 0.25
-
-      // ── NEW: click-frequency / fatigue metrics (session-wide) ──
+      // ── Click-frequency / fatigue metrics (session-wide) ──
       clickFrequency: {
         bucketMs: BUCKET_MS,
         buckets: clickRateSeries,
@@ -2503,14 +2465,30 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
       interactionLog: T.interactionLog,
 
       // ── Raw logs (keep everything — researcher can recompute anything) ──
-      editLog: T.editLog,
-      clickLog: T.clickLog,
-      hoverLog: T.hoverLog,
-      zoomLog: T.zoomLog,
-      dragLog: T.dragLog,
-      chromVisits: visits,
-      accuracyTimeline: T.accuracyTimeline,
-      clickTimestamps: clicks,
+      editLog:          T.editLog,
+      clickLog:         T.clickLog,
+      hoverLog:         T.hoverLog,
+      zoomLog:          T.zoomLog,
+      dragLog:          T.dragLog,
+      chromVisits:      visits,
+      clickTimestamps:  clicks,
+
+      // ── NEW rich event streams ──
+      // Every pointerdown and pointerup — distinguishes press from release,
+      // includes screen coords, chart-space coords (time & signal value),
+      // button identity, and the UI element that was targeted.
+      pointerEventLog:  T.pointerEventLog,
+
+      // Cursor position sampled at 500 ms intervals — spatial heatmap data.
+      cursorSampleLog:  T.cursorSampleLog,
+
+      // Snapshot of every peak (start/apex/end) taken when the participant
+      // clicks "Finish" on each chromatogram, plus the viewport domain at
+      // that moment.
+      chromFinalStates: T.chromFinalStates,
+
+      // Raw peak list sampled every 15 s — trajectory reconstruction backup.
+      annotationSnapshots: T.annotationSnapshots,
 
       // ── Per-chromatogram structured summaries ──
       chromatograms: perChrom,
@@ -2676,14 +2654,19 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
     if (a < xMin) { a = xMin; b = a + nw; } if (b > xMax) { b = xMax; a = b - nw; }
     setDomain([a, b]);
     // Log zoom event to interaction log
+    const _zoomMs = Date.now() - T.sessionStart;
     pushInteraction(T, "zoom", currentIdxRef.current, null, null, {
       domainBefore: [domain[0], domain[1]],
-      domainAfter: [a, b],
-      widthBefore: w,
-      widthAfter: nw,
+      domainAfter:  [a, b],
+      widthBefore:  w,
+      widthAfter:   nw,
       anchorChartX: anchor,
-      direction: e.deltaY > 0 ? "in" : "out",
+      direction:    e.deltaY > 0 ? "in" : "out",
+      timeMs:       _zoomMs,
     });
+    T.zoomLog.push({ time: _zoomMs, chromIdx: currentIdxRef.current,
+      domainStart: a, domainEnd: b, width: nw,
+      direction: e.deltaY > 0 ? "in" : "out", anchorChartX: anchor });
   }, [domain, fxInv, xMax, xMin]);
 
   const fOnSvgPointerDown = useCallback(e => {
@@ -3255,7 +3238,9 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
           <div style={{ marginTop: 10 }}>
             {isLastChrom ? (
               <button onClick={() => {
-                pushInteraction(T, "finish_chrom", currentIdxRef.current, null, null, { chromIdx: currentIdx, peakCountFinal: activePeaks.length, isLastChrom: true });
+                const _psL = [...activePeaks].sort((a,b)=>a.userApex-b.userApex).map(p=>({ id:p.id, start:p.userStart, apex:p.userApex, end:p.userEnd, isAIPeak:!p.id.startsWith("user_"), confidence:p.confidence??null }));
+                T.chromFinalStates.push({ chromIdx:currentIdx, chromName:ds.name, snapshotTimeMs:Date.now()-T.sessionStart, domain:[...domain], peaks:_psL });
+                pushInteraction(T, "finish_chrom", currentIdxRef.current, null, null, { chromIdx:currentIdx, peakCountFinal:activePeaks.length, isLastChrom:true, finalPeaks:_psL, viewportDomain:[...domain] });
                 proceedToSurveys();
               }} data-track="nav_to_surveys_bottom"
                 style={{ width: "100%", padding: "13px 20px", borderRadius: 10, border: "none", fontSize: 14, fontWeight: 700, cursor: "pointer", background: "linear-gradient(135deg,#059669,#10b981)", color: "#fff", boxShadow: "0 4px 14px rgba(5,150,105,.3)" }}>
@@ -3263,7 +3248,9 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
               </button>
             ) : (
               <button onClick={() => {
-                pushInteraction(T, "finish_chrom", currentIdxRef.current, null, null, { chromIdx: currentIdx, peakCountFinal: activePeaks.length, isLastChrom: false });
+                const _psN = [...activePeaks].sort((a,b)=>a.userApex-b.userApex).map(p=>({ id:p.id, start:p.userStart, apex:p.userApex, end:p.userEnd, isAIPeak:!p.id.startsWith("user_"), confidence:p.confidence??null }));
+                T.chromFinalStates.push({ chromIdx:currentIdx, chromName:ds.name, snapshotTimeMs:Date.now()-T.sessionStart, domain:[...domain], peaks:_psN });
+                pushInteraction(T, "finish_chrom", currentIdxRef.current, null, null, { chromIdx:currentIdx, peakCountFinal:activePeaks.length, isLastChrom:false, finalPeaks:_psN, viewportDomain:[...domain] });
                 goNext();
               }} data-track="nav_next_bottom"
                 style={{ width: "100%", padding: "13px 20px", borderRadius: 10, border: "none", fontSize: 14, fontWeight: 700, cursor: "pointer", background: "linear-gradient(135deg,#1e40af,#3b82f6)", color: "#fff", boxShadow: "0 4px 14px rgba(30,64,175,.25)" }}>
@@ -3272,10 +3259,12 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
             )}
             {!isLastChrom && (
               <button onClick={() => {
+                const _chromsDone = finishedAt.filter(t=>t!=null).length;
+                const _psS = [...activePeaks].sort((a,b)=>a.userApex-b.userApex).map(p=>({ id:p.id, start:p.userStart, apex:p.userApex, end:p.userEnd, isAIPeak:!p.id.startsWith("user_"), confidence:p.confidence??null }));
                 pushInteraction(T, "skip_to_surveys", currentIdxRef.current, null, null, {
-                  chromIdx: currentIdx,
-                  peaksAnnotated: activePeaks.length,
-                  totalChroms: datasets.length,
+                  chromIdx: currentIdx, peaksAnnotated: activePeaks.length,
+                  totalChroms: datasets.length, chromsCompleted: _chromsDone,
+                  finalPeaks: _psS, viewportDomain: [...domain],
                 });
                 proceedToSurveys();
               }} data-track="skip_to_surveys"
@@ -3350,10 +3339,10 @@ function NasaTlxSurvey({ onComplete, onQuit }) {
 
                 {/* Scale bar with tick marks */}
                 <div style={{ flex: 1, position: "relative", height: 40, cursor: "pointer", userSelect: "none" }}
+                  data-track="nasa_tlx_scale" data-scale-id={scale.id}
                   onClick={e => {
                     const rect = e.currentTarget.getBoundingClientRect();
                     const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-                    // Snap to nearest integer (0-100)
                     const raw = frac * 100;
                     const snapped = Math.round(raw);
                     handleClick(scale.id, Math.max(0, Math.min(100, snapped)));
@@ -3421,11 +3410,11 @@ function NasaTlxSurvey({ onComplete, onQuit }) {
           );
         })}
 
-        <button onClick={() => onComplete(responses)}
+        <button onClick={() => onComplete(responses)} data-track="survey_nasa_tlx_submit"
           style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: "#1e40af", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", marginTop: 8 }}>
           Next Survey →
         </button>
-        <button onClick={() => { if (window.confirm("Are you sure you want to quit the study? Your progress so far will be saved and exported.")) onQuit(); }}
+        <button onClick={() => { if (window.confirm("Are you sure you want to quit the study? Your progress so far will be saved and exported.")) onQuit(); }} data-track="survey_quit"
           style={{ width: "100%", padding: "10px", borderRadius: 10, border: "1px solid #fca5a5", background: "#fef2f2", color: "#dc2626", fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 8 }}>
           Quit Study
         </button>
@@ -3490,6 +3479,7 @@ function FeedbackSurvey({ onComplete, onQuit }) {
                   const sel = responses[q.id] === val;
                   return (
                     <button key={val} onClick={() => setResponses(prev => ({ ...prev, [q.id]: val }))}
+                      data-track="survey_feedback_likert" data-question-id={q.id} data-value={val}
                       style={{
                         flex: 1, padding: "8px 4px", borderRadius: 6,
                         border: sel ? "2px solid #3b82f6" : "1px solid #e5e7eb",
@@ -3513,6 +3503,7 @@ function FeedbackSurvey({ onComplete, onQuit }) {
                     const sel = responses[q.id] === val;
                     return (
                       <button key={val} onClick={() => setResponses(prev => ({ ...prev, [q.id]: val }))}
+                        data-track="survey_feedback_semantic" data-question-id={q.id} data-value={val}
                         style={{
                           width: 28, height: 28, borderRadius: "50%", padding: 0,
                           border: sel ? "3px solid #3b82f6" : "2px solid #cbd5e1",
@@ -3553,10 +3544,11 @@ function FeedbackSurvey({ onComplete, onQuit }) {
         )}
 
         <button onClick={() => { if (allAnswered) onComplete(responses); }} disabled={!allAnswered}
+          data-track="survey_feedback_submit"
           style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: allAnswered ? "#1e40af" : "#94a3b8", color: "#fff", fontSize: 15, fontWeight: 700, cursor: allAnswered ? "pointer" : "not-allowed", marginTop: 20 }}>
           Next Survey →
         </button>
-        <button onClick={() => { if (window.confirm("Are you sure you want to quit the study? Your progress so far will be saved and exported.")) onQuit(); }}
+        <button onClick={() => { if (window.confirm("Are you sure you want to quit the study? Your progress so far will be saved and exported.")) onQuit(); }} data-track="survey_quit"
           style={{ width: "100%", padding: "10px", borderRadius: 10, border: "1px solid #fca5a5", background: "#fef2f2", color: "#dc2626", fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 8 }}>
           Quit Study
         </button>
@@ -3679,6 +3671,7 @@ function DemographicsSurvey({ onComplete, onQuit }) {
                         const sel = responses[q.id] === opt;
                         return (
                           <button key={opt} onClick={() => setResponses(prev => ({ ...prev, [q.id]: opt }))}
+                            data-track="survey_demographics_option" data-question-id={q.id} data-value={opt}
                             style={{
                               padding: "8px 14px", borderRadius: 6,
                               ...(isLikert ? { flex: 1, margin: "0 2px", textAlign: "center" } : { width: "100%", textAlign: "left" }),
@@ -3714,10 +3707,11 @@ function DemographicsSurvey({ onComplete, onQuit }) {
         )}
 
         <button onClick={() => { if (allAnswered) { const out = {}; DEMO_QUESTIONS.forEach(q => { if (q.type === "open") { out[q.id] = responses[q.id]; } else { out[q.id] = responses[q.id] === "Other" ? `Other: ${otherText[q.id]}` : responses[q.id]; } }); onComplete(out); } }} disabled={!allAnswered}
+          data-track="survey_demographics_submit"
           style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: allAnswered ? "#059669" : "#94a3b8", color: "#fff", fontSize: 15, fontWeight: 700, cursor: allAnswered ? "pointer" : "not-allowed", marginTop: 20 }}>
           Submit &amp; Finish Study
         </button>
-        <button onClick={() => { if (window.confirm("Are you sure you want to quit the study? Your progress so far will be saved and exported.")) onQuit(); }}
+        <button onClick={() => { if (window.confirm("Are you sure you want to quit the study? Your progress so far will be saved and exported.")) onQuit(); }} data-track="survey_quit"
           style={{ width: "100%", padding: "10px", borderRadius: 10, border: "1px solid #fca5a5", background: "#fef2f2", color: "#dc2626", fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 8 }}>
           Quit Study
         </button>
@@ -3889,10 +3883,11 @@ function StudyFlow({ session }) {
     }
 
     // Upload partial results to Firebase silently — no local download fallback
+    const { _tracker: _qt, ...partialUploadData } = partialExport;
     addDoc(collection(db, "study_results"), {
       submittedAt: new Date(),
       userName: session.userName,
-      data: partialExport,
+      data: partialUploadData,
     }).catch(err => {
       console.error("Firebase upload failed (quit early):", err);
     });
@@ -3946,11 +3941,7 @@ function StudyFlow({ session }) {
         totalAnnotationEdits: annotationResults.totalAnnotationEdits,
         totalIdleMs: annotationResults.totalIdleMs,
         avgInterClickMs: annotationResults.avgInterClickMs,
-        accuracyRateOfChange: annotationResults.accuracyRateOfChange,                   // matched-only (legacy)
-        accuracyRateOfChange_overGT: annotationResults.accuracyRateOfChange_overGT,     // penalizes misses
-        accuracyRateOfChange_panoptic: annotationResults.accuracyRateOfChange_panoptic, // miss + spurious
-        accuracyRateOfChange_F1: annotationResults.accuracyRateOfChange_F1,             // F1 at IoU 0.5
-        // NEW: click-frequency / fatigue indicators
+        // click-frequency / fatigue indicators
         clickRateSlopePerMin: annotationResults.clickFrequency?.clickRateSlopePerMin ?? null,
         firstHalfClicksPerMin: annotationResults.clickFrequency?.firstHalfRatePerMin ?? null,
         secondHalfClicksPerMin: annotationResults.clickFrequency?.secondHalfRatePerMin ?? null,
@@ -3973,20 +3964,7 @@ function StudyFlow({ session }) {
         // Per-chromatogram accuracy + NEW per-chromatogram timing/engagement
         ...annotationResults.chromatograms.reduce((acc, c, i) => {
           const key = `chrom${i + 1}`;
-          if (c.accuracy) {
-            acc[`${key}_avgIoU`]         = Math.round(c.accuracy.avgIoU * 1000) / 1000;          // matched-only (legacy)
-            acc[`${key}_avgIoU_overGT`]  = Math.round((c.accuracy.avgIoU_overGT ?? 0) * 1000) / 1000;   // penalizes misses
-            acc[`${key}_panopticQuality`] = Math.round((c.accuracy.panopticQuality ?? 0) * 1000) / 1000; // miss + spurious
-            acc[`${key}_f1AtIoU25`]      = Math.round((c.accuracy.f1AtIoU25 ?? 0) * 1000) / 1000;
-            acc[`${key}_precisionAtIoU25`] = Math.round((c.accuracy.precisionAtIoU25 ?? 0) * 1000) / 1000;
-            acc[`${key}_recallAtIoU25`]  = Math.round((c.accuracy.recallAtIoU25 ?? 0) * 1000) / 1000;
-            acc[`${key}_fp`] = c.accuracy.fp;
-            acc[`${key}_fn`] = c.accuracy.fn;
-            acc[`${key}_matched`] = c.accuracy.matched;
-            acc[`${key}_totalGT`] = c.accuracy.total;
-            acc[`${key}_totalUserPeaks`] = c.accuracy.totalUserPeaks;
-          }
-          // NEW: per-chromatogram engagement columns
+          // per-chromatogram engagement columns
           acc[`${key}_totalActiveMs`] = c.totalActiveMs;
           acc[`${key}_revisitCount`] = c.revisitCount;
           acc[`${key}_timeToFirstEditMs`] = c.timeToFirstEditMs;
@@ -4024,10 +4002,11 @@ function StudyFlow({ session }) {
   const doUpload = useCallback(async (results) => {
     setUploadStatus("uploading");
     try {
+      const { _tracker: _ft, ...uploadData } = results;
       await addDoc(collection(db, "study_results"), {
         submittedAt: new Date(),
         userName: session.userName,
-        data: results,
+        data: uploadData,
       });
       setUploadStatus("success");
     } catch (err) {
