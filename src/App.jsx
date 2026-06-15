@@ -658,82 +658,28 @@ async function loadDatasetsFromURLs(dataBaseUrl) {
 // ══════════════════════════════════════════════
 //  SCREEN 1: Welcome — Name, Viz, File Upload
 // ══════════════════════════════════════════════
+// Fixed data URL
+const DATA_URL = "https://catac0mb.github.io/Peak_Annotator/data";
+
 function WelcomeScreen({ onStart }) {
-  const [name, setName] = useState("");
   const [vizMode, setVizMode] = useState("");
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // URL loading mode (default)
-  const defaultDataUrl = `${window.location.origin}${window.location.pathname.replace(/\/[^/]*$/, "")}/data`;
-  const [dataUrl, setDataUrl] = useState(defaultDataUrl);
-  const [loadMode, setLoadMode] = useState("url");
-
-  // Upload mode (fallback)
-  const [fileMap, setFileMap] = useState({});
-  const [filePaths, setFilePaths] = useState([]);
-  const [uploadLoading, setUploadLoading] = useState(false);
-
-  const folderSummary = useMemo(() => {
-    const folders = new Set();
-    for (const p of filePaths) {
-      const parts = p.replace(/\\/g, "/").split("/");
-      if (parts.length >= 3) folders.add(parts[parts.length - 2]);
-      else if (parts.length === 2) folders.add(parts[0]);
-    }
-    return folders;
-  }, [filePaths]);
-
-  const ingestFiles = async (fileList) => {
-    setUploadLoading(true); setError(null);
-    try {
-      const map = {}, paths = [];
-      for (const { path, file } of fileList) {
-        if (!file.name.endsWith(".csv") && !file.name.endsWith(".json")) continue;
-        map[path] = await file.text();
-        paths.push(path);
-      }
-      setFileMap(map); setFilePaths(paths);
-    } catch (e) { setError("Error reading files: " + e.message); }
-    setUploadLoading(false);
-  };
-
-  const handleBrowse = (e) => {
-    const selected = Array.from(e.target.files);
-    ingestFiles(selected.map(f => ({ path: f.webkitRelativePath || f.name, file: f })));
-  };
-
-  const handleDrop = async (e) => {
-    e.preventDefault(); setError(null);
-    try {
-      const entries = await readDroppedFolder(e.dataTransfer);
-      if (entries.length > 0) { ingestFiles(entries); return; }
-    } catch (_) {}
-    const dropped = Array.from(e.dataTransfer.files);
-    ingestFiles(dropped.map(f => ({ path: f.webkitRelativePath || f.name, file: f })));
-  };
-
-  const hasUploadFiles = filePaths.length > 0;
-  const canStart = name.trim().length > 0 && vizMode &&
-    (loadMode === "url" ? dataUrl.trim().length > 0 : hasUploadFiles) && !loading;
+  const canStart = !!vizMode && !loading;
 
   const handleStart = async () => {
     if (!canStart) return;
     setError(null); setLoading(true);
     try {
-      let datasets;
-      if (loadMode === "url") {
-        datasets = await loadDatasetsFromURLs(dataUrl.trim());
-      } else {
-        datasets = processUploadedFiles(fileMap);
-      }
-      // Shuffle into random order for this participant (Fisher-Yates).
+      const datasets = await loadDatasetsFromURLs(DATA_URL);
       const shuffled = [...datasets];
       for (let i = shuffled.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
       }
-      onStart({ userName: name.trim(), vizMode, datasets: shuffled });
+      const anonId = "P_" + Date.now().toString(36).toUpperCase() + "_" + Math.random().toString(36).slice(2,6).toUpperCase();
+      onStart({ userName: anonId, vizMode, datasets: shuffled });
     } catch (e) { setError(e.message); }
     setLoading(false);
   };
@@ -749,14 +695,10 @@ function WelcomeScreen({ onStart }) {
     <div style={{ fontFamily: "'IBM Plex Sans',system-ui,sans-serif", background: "linear-gradient(160deg,#f0f4ff 0%,#f8f9fb 40%,#faf5ff 100%)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div style={{ maxWidth: 580, width: "100%", padding: 32 }}>
         <h1 style={{ fontSize: 28, fontWeight: 800, color: "#1e293b", marginBottom: 2 }}>Chromatogram Peak Annotator</h1>
-        <p style={{ color: "#64748b", fontSize: 14, marginBottom: 28 }}>Set up your session, then begin annotating.</p>
+        <p style={{ color: "#64748b", fontSize: 14, marginBottom: 28 }}>Select your assigned condition, then begin annotating.</p>
 
-        <label style={{ fontSize: 13, fontWeight: 700, color: "#374151", display: "block", marginBottom: 6 }}>Your Name</label>
-        <input value={name} onChange={e => setName(e.target.value)} placeholder="Enter your name..."
-          style={{ width: "100%", padding: "12px 14px", borderRadius: 10, border: "1px solid #d1d5db", fontSize: 14, marginBottom: 20, boxSizing: "border-box" }} />
-
-        <label style={{ fontSize: 13, fontWeight: 700, color: "#374151", display: "block", marginBottom: 8 }}>Visualization Technique</label>
-        <div style={{ display: "grid", gap: 8, marginBottom: 20 }}>
+        <label style={{ fontSize: 13, fontWeight: 700, color: "#374151", display: "block", marginBottom: 8 }}>Visualization Condition</label>
+        <div style={{ display: "grid", gap: 8, marginBottom: 24 }}>
           {vizOptions.map(v => (
             <div key={v.id} onClick={() => setVizMode(v.id)}
               style={{ padding: "12px 16px", borderRadius: 10, cursor: "pointer", transition: "all .15s", border: vizMode === v.id ? "2px solid #3b82f6" : "1px solid #d1d5db", background: vizMode === v.id ? "#eff6ff" : "#fff" }}>
@@ -766,56 +708,10 @@ function WelcomeScreen({ onStart }) {
           ))}
         </div>
 
-        <label style={{ fontSize: 13, fontWeight: 700, color: "#374151", display: "block", marginBottom: 8 }}>Data Source</label>
-        <div style={{ display: "flex", gap: 0, marginBottom: 16, borderRadius: 8, overflow: "hidden", border: "1px solid #d1d5db" }}>
-          {[{ id: "url", label: "Load from URL (default)" }, { id: "upload", label: "Upload folder manually" }].map(m => (
-            <button key={m.id} onClick={() => { setLoadMode(m.id); setError(null); }}
-              style={{ flex: 1, padding: "9px 0", border: "none", cursor: "pointer", fontWeight: 600, fontSize: 12,
-                background: loadMode === m.id ? "#1e40af" : "#f9fafb",
-                color: loadMode === m.id ? "#fff" : "#374151" }}>
-              {m.label}
-            </button>
-          ))}
-        </div>
-
-        {loadMode === "url" && (
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6 }}>Data folder URL</label>
-            <input value={dataUrl} onChange={e => setDataUrl(e.target.value)}
-              style={{ width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: 12, fontFamily: "monospace", boxSizing: "border-box" }} />
-            <div style={{ marginTop: 6, fontSize: 11, color: "#94a3b8", lineHeight: 1.6 }}>
-              The app fetches <code>manifest.json</code> from this URL, then loads each dataset listed in it. Auto-detected from the current page URL — no changes needed once deployed.
-            </div>
-          </div>
-        )}
-
-        {loadMode === "upload" && (
-          <>
-            <div onDragOver={e => e.preventDefault()} onDrop={handleDrop}
-              style={{ border: "2px dashed #cbd5e1", borderRadius: 12, padding: 28, textAlign: "center", background: "#fff", marginBottom: 12 }}>
-              <div style={{ fontSize: 28, marginBottom: 6 }}>&#128193;</div>
-              <p style={{ fontSize: 13, color: "#475569", marginBottom: 10 }}>Drag &amp; drop your data folder here, or click below to browse</p>
-              <input type="file" webkitdirectory="" directory="" multiple onChange={handleBrowse} style={{ fontSize: 12 }} />
-              <div style={{ marginTop: 12, fontSize: 11, color: "#94a3b8", lineHeight: 1.6 }}>
-                <strong>Expected structure:</strong> data/ &gt; 12_1_control/ &gt; 12_1_control.csv + _explanations.json + _groundtruthlabels.json
-              </div>
-            </div>
-            {uploadLoading && <div style={{ marginBottom: 12, padding: 10, background: "#eff6ff", borderRadius: 8, fontSize: 12, color: "#1d4ed8" }}>Reading files...</div>}
-            {hasUploadFiles && (
-              <div style={{ marginBottom: 12, padding: 10, background: "#f1f5f9", borderRadius: 8, fontSize: 11 }}>
-                <strong>{filePaths.length} file(s)</strong> across <strong>{folderSummary.size} subfolder(s)</strong>:
-                <div style={{ marginTop: 4, color: "#475569" }}>
-                  {[...folderSummary].slice(0, 12).join(", ")}{folderSummary.size > 12 ? `, \u2026+${folderSummary.size - 12} more` : ""}
-                </div>
-              </div>
-            )}
-          </>
-        )}
-
         {error && <div style={{ padding: 10, background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, fontSize: 12, color: "#dc2626", marginBottom: 12 }}>{error}</div>}
 
-        <button onClick={handleStart} disabled={!canStart || loading}
-          style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: canStart && !loading ? "#1e40af" : "#94a3b8", color: "#fff", fontSize: 15, fontWeight: 700, cursor: canStart && !loading ? "pointer" : "not-allowed" }}>
+        <button onClick={handleStart} disabled={!canStart}
+          style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: canStart ? "#1e40af" : "#94a3b8", color: "#fff", fontSize: 15, fontWeight: 700, cursor: canStart ? "pointer" : "not-allowed" }}>
           {loading ? "Loading data\u2026" : "Begin Annotation"}
         </button>
       </div>
@@ -1282,8 +1178,15 @@ function TutorialScreen({ vizMode, onDismiss }) {
       }
       if (vizMode === "threshold_bars") {
         allSteps.push({
+          title: "Understanding the Five Detection Criteria",
+          instruction: "The AI peak-detection algorithm evaluates five properties of every signal feature. Understanding these will help you assess whether a detection is real:\n\n\u2022 Prominence \u2014 How much a peak \u2018stands out\u2019 above surrounding signal. A prominent peak rises well above its neighbours; a low-prominence bump barely lifts above the baseline. High prominence strongly indicates a real peak.\n\n\u2022 Width \u2014 The horizontal span of the peak at half its height. Real chromatographic peaks have a characteristic minimum width determined by how compounds travel through the column. Very narrow spikes are usually electrical noise or artefacts.\n\n\u2022 Height \u2014 The absolute signal intensity at the peak apex above the baseline. Too-small heights indicate the signal may not have risen meaningfully above background.\n\n\u2022 S/N \u2014 Signal-to-Noise Ratio. Measures how large the peak is compared to the random noise fluctuations in the surrounding baseline. A high S/N means the peak is unlikely to be explained by noise alone. Low S/N (e.g., below 2\u20133) suggests the \u2018peak\u2019 could simply be a noise spike.\n\n\u2022 Peak Area \u2014 The total area under the peak curve above the baseline. A real chromatographic peak has meaningful area; a narrow noise spike has near-zero area even if it looks tall.",
+          task: null,
+          isDone: true,
+          feedback: null,
+        });
+        allSteps.push({
           title: "Reading the Threshold Bars",
-          instruction: "The side panel shows five horizontal bars for each AI detection — one each for Prominence, Width, Height, S/N (signal-to-noise ratio), and Area. These are the features the algorithm uses to decide if a signal is a peak.\n\nThe tick mark in the center of each bar represents the detection threshold. The colored dot shows where the peak's actual value falls:\n\n\u2022 Green dot to the right \u2192 above threshold (supports detection)\n\u2022 Red dot to the left \u2192 below threshold (weakens detection)\n\nA dot close to the center tick means the value barely meets (or barely misses) the threshold. Look at the detection at t\u22489.80 — its S/N and Area bars are to the left of center (below threshold), indicating this is likely a noise bump rather than a real peak.\n\nTry hovering over peaks in the side panel to see their bars.",
+          instruction: "The side panel shows five horizontal bars for each AI detection — one for each criterion above.\n\nThe tick mark in the centre of each bar is the detection threshold the algorithm learned for that criterion. The coloured dot shows where this particular peak\'s measured value falls:\n\n\u2022 Green dot to the right \u2192 above threshold \u2014 this criterion supports the detection\n\u2022 Red dot to the left \u2192 below threshold \u2014 this criterion weakens the detection\n\nThe further right the dot, the stronger the evidence. The further left, the weaker.\n\nKey insight: a detected peak with dots far to the right on all five bars is almost certainly a real chromatographic peak. A detection with several dots near the centre or to the left is borderline \u2014 look at the signal carefully before accepting it.\n\nLook at the detection at t\u22489.80 \u2014 its S/N and Area bars sit to the left of centre (below threshold), indicating the algorithm flagged it but the evidence is weak. It is likely just baseline noise.\n\nTry hovering over peaks in the side panel to see their bars.",
           task: "Hover over a peak to see its threshold bars",
           isDone: hasHoveredPeak,
           feedback: null,
@@ -1341,12 +1244,12 @@ function TutorialScreen({ vizMode, onDismiss }) {
         feedback: null,
       });
 
-      // Select
+      // Select — auto-complete if already selected (addPeak auto-selects)
       allSteps.push({
         title: "Select Your Peak",
-        instruction: "The peak you just added should already be selected (highlighted in the side panel). If not, click on it in the side panel on the right to select it.\n\nSelecting a peak shows its boundary lines and draggable handles on the chart.",
-        task: "Click a peak in the side panel to select it",
-        isDone: hasSelectedPeak,
+        instruction: "The peak you just added is already selected — you can see its handles below the chart.\n\nIf it isn't selected, click its pill in the peak list.",
+        task: "Select a peak to see its drag handles",
+        isDone: hasSelectedPeak || tutSelectedId !== null,
         feedback: null,
       });
 
@@ -1383,8 +1286,8 @@ function TutorialScreen({ vizMode, onDismiss }) {
     allSteps.push({
       title: "You're Ready!",
       instruction: isAICondition
-        ? "Great job completing the tutorial! To summarize your task:\n\nFor each chromatogram, review every AI-detected peak and ask yourself: \u201cIs this a real peak? Are its boundaries correct?\u201d\n\n\u2022 If the peak is real and boundaries are correct \u2014 leave it as is\n\u2022 If the peak is real but boundaries are wrong \u2014 drag the handles to fix them\n\u2022 If the detection is not a real peak \u2014 click the red \u2715 on its pill to delete it\n\u2022 If the AI missed a real peak \u2014 add it with \u201c+ Add Peak\u201d\n\u2022 Deleted peaks appear grayed out \u2014 click them to restore if needed\n\nWhen you finish all chromatograms, click \u201cFinish & Continue to Surveys\u201d. If you\u2019d like to stop annotating early at any point, click the \u201cClick here to skip to surveys if you want to stop annotating\u201d button below the main finish button.\n\nAfter annotating, you\u2019ll complete two short surveys. Click \u201cStart Annotating\u201d when you\u2019re ready!"
-        : "Great job completing the tutorial! To summarize your task:\n\nFor each chromatogram, find every peak and label its start, apex, and end boundaries using \u201c+ Add Peak\u201d and the drag handles.\n\nA peak is a region where the signal rises clearly above the baseline and then returns. Use zoom and pan to inspect the chromatogram carefully.\n\n\u2022 Use the \u2715 button on a peak pill to delete it, or select it and click Delete Peak Annotation\n\u2022 Deleted peaks appear grayed out \u2014 click them to restore if needed\n\nIf you\u2019d like to stop annotating early at any point, click the \u201cClick here to skip to surveys if you want to stop annotating\u201d button below the main finish button.\n\nAfter annotating, you\u2019ll complete two short surveys. Click \u201cStart Annotating\u201d when you\u2019re ready!",
+        ? "Great job completing the tutorial! To summarize your task:\n\nFor each chromatogram, review every AI-detected peak and ask yourself: \u201cIs this a real peak? Are its boundaries correct?\u201d\n\n\u2022 If the peak is real and boundaries are correct \u2014 leave it as is\n\u2022 If the peak is real but boundaries are wrong \u2014 drag the handles to fix them\n\u2022 If the detection is not a real peak \u2014 click the red \u2715 on its pill to delete it\n\u2022 If the AI missed a real peak \u2014 add it with \u201c+ Add Peak\u201d\n\u2022 Deleted peaks appear grayed out \u2014 click them to restore if needed\n\nWhen you are done with a chromatogram, click the large blue \u201cFinish This Chromatogram & Start Next\u201d button.\n\n\u26a0\ufe0f YOU DO NOT HAVE TO ANNOTATE ALL CHROMATOGRAMS. Below the blue finish button there is always a clearly-marked grey button: \u201cClick here to skip to surveys if you want to stop annotating\u201d. Press it at any time to jump straight to the surveys. There is no penalty for stopping early.\n\nAfter annotating, you\u2019ll complete two short surveys. Click \u201cStart Annotating\u201d when you\u2019re ready!"
+        : "Great job completing the tutorial! To summarize your task:\n\nFor each chromatogram, find every peak and label its start, apex, and end boundaries using \u201c+ Add Peak\u201d and the drag handles.\n\nA peak is a region where the signal rises clearly above the baseline and then returns. Use zoom and pan to inspect the chromatogram carefully.\n\n\u2022 Use the \u2715 button on a peak pill to delete it, or select it and click Delete Peak Annotation\n\u2022 Deleted peaks appear grayed out \u2014 click them to restore if needed\n\nWhen you are done with a chromatogram, click the large blue \u201cFinish This Chromatogram & Start Next\u201d button.\n\n\u26a0\ufe0f YOU DO NOT HAVE TO ANNOTATE ALL CHROMATOGRAMS. Below the blue finish button there is always a clearly-marked grey button: \u201cClick here to skip to surveys if you want to stop annotating\u201d. Press it at any time to jump straight to the surveys. There is no penalty for stopping early.\n\nAfter annotating, you\u2019ll complete two short surveys. Click \u201cStart Annotating\u201d when you\u2019re ready!",
       task: null,
       isDone: true,
       feedback: null,
@@ -1563,8 +1466,21 @@ function TutorialScreen({ vizMode, onDismiss }) {
         </div>
       )}
       {!showConf && showChart && (
-        <div style={{ background: "#f8fafc", borderBottom: "1px solid #e5e7eb", padding: "6px 20px", fontSize: 11, color: "#64748b" }}>
-          <strong style={{ color: "#374151" }}>Tip:</strong> Scroll to zoom · Drag to pan · Click a peak pill below to select it · Click ✕ on a pill to delete
+        <div style={{ background: "#f8fafc", borderBottom: "1px solid #e5e7eb", padding: "6px 20px", display: "flex", alignItems: "center", gap: 16, fontSize: 11, color: "#64748b", flexWrap: "wrap" }}>
+          <span style={{ fontWeight: 700, color: "#374151", fontSize: 11 }}>Legend:</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <svg width={12} height={14}><polygon points="0,2 0,12 10,7" fill="#1e40af" /></svg>
+            Start boundary
+          </span>
+          <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <svg width={14} height={14}><polygon points="7,0 14,7 7,14 0,7" fill="#1e40af" /></svg>
+            Apex (peak top)
+          </span>
+          <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <svg width={12} height={14}><polygon points="12,2 12,12 2,7" fill="#1e40af" /></svg>
+            End boundary
+          </span>
+          <span style={{ color: "#94a3b8" }}>· Scroll to zoom · Drag to pan · Click a peak pill below to select it · Click ✕ on a pill to delete</span>
         </div>
       )}
 
@@ -2913,10 +2829,9 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
       <div style={{ background: "linear-gradient(135deg,#1a1a2e,#16213e)", padding: "10px 20px", color: "#fff", display: "flex", alignItems: "center", gap: 12 }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: -.2 }}>
-            Peak Annotator <span style={{ fontWeight: 400, opacity: .55 }}>— {userName}</span>
+            Chromatogram Peak Annotator
           </div>
           <div style={{ fontSize: 11, opacity: .5, marginTop: 1 }}>
-            Chromatogram {currentIdx + 1} of {datasets.length}: <strong style={{ opacity: 1 }}>{ds.name}</strong>
           </div>
         </div>
 
@@ -2992,8 +2907,21 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
         </div>
       )}
       {!showConf && (
-        <div style={{ background: "#f8fafc", borderBottom: "1px solid #e5e7eb", padding: "6px 20px", fontSize: 11, color: "#64748b" }}>
-          <strong style={{ color: "#374151" }}>Tip:</strong> Scroll over the chart to zoom in · Drag the chart to pan · Click a peak in the list below to select and edit it
+        <div style={{ background: "#f8fafc", borderBottom: "1px solid #e5e7eb", padding: "6px 20px", display: "flex", alignItems: "center", gap: 16, fontSize: 11, color: "#64748b", flexWrap: "wrap" }}>
+          <span style={{ fontWeight: 700, color: "#374151", fontSize: 11 }}>Legend:</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <svg width={12} height={14}><polygon points="0,2 0,12 10,7" fill="#1e40af" /></svg>
+            Start boundary
+          </span>
+          <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <svg width={14} height={14}><polygon points="7,0 14,7 7,14 0,7" fill="#1e40af" /></svg>
+            Apex (peak top)
+          </span>
+          <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <svg width={12} height={14}><polygon points="12,2 12,12 2,7" fill="#1e40af" /></svg>
+            End boundary
+          </span>
+          <span style={{ color: "#94a3b8" }}>· Scroll to zoom · Drag to pan · Click a peak in the list below to select and edit it</span>
         </div>
       )}
 
