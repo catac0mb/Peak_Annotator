@@ -727,7 +727,13 @@ function WelcomeScreen({ onStart }) {
       } else {
         datasets = processUploadedFiles(fileMap);
       }
-      onStart({ userName: name.trim(), vizMode, datasets });
+      // Shuffle into random order for this participant (Fisher-Yates).
+      const shuffled = [...datasets];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      onStart({ userName: name.trim(), vizMode, datasets: shuffled });
     } catch (e) { setError(e.message); }
     setLoading(false);
   };
@@ -2548,6 +2554,9 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
       sessionId: prolificParams?.sessionId ?? null,
       visualizationMode: vizMode,
       sessionDurationMs: now,
+      // Randomized presentation order — lets you reconstruct which
+      // chromatogram each participant saw at each position.
+      chromatogramOrder: datasets.map((ds, i) => ({ position: i + 1, name: ds.name, baseName: ds.baseName })),
 
       // ── Legacy top-level counters (preserved for backwards compatibility) ──
       totalClicks: T.totalClicks,
