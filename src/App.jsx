@@ -1808,6 +1808,30 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
   // active WITHOUT re-subscribing the listener on every change (which would
   // miss events during re-subscribe). A ref is the reliable way.
   const currentIdxRef = useRef(currentIdx);
+
+  // Refs read by screenToChart (declared early so the global pointer listener,
+  // which depends on screenToChart, can reference it without a TDZ error).
+  // The actual values are synced into these refs by effects further down,
+  // after fpad/fplotW/domain/yMax are computed.
+  const fpadRef = useRef(null);
+  const fplotWRef = useRef(null);
+  const domainRef = useRef(null);
+  const yMaxRef = useRef(null);
+
+  // Stable: reads live values from refs, so empty dependency array is correct.
+  const screenToChart = useCallback((clientX, clientY) => {
+    const r = svgRef.current?.getBoundingClientRect();
+    const pad = fpadRef.current, pw = fplotWRef.current, dom = domainRef.current, ymax = yMaxRef.current;
+    if (!r || !pad || pw == null || !dom || ymax == null) return null;
+    const svgX = (clientX - r.left) * (FW / r.width);
+    const svgY = (clientY - r.top)  * (FH / r.height);
+    const plotH = FH - pad.t - 56;
+    if (svgX < pad.l || svgX > pad.l + pw || svgY < pad.t || svgY > pad.t + plotH) return null;
+    return {
+      chartX: dom[0] + ((svgX - pad.l) / pw) * (dom[1] - dom[0]),
+      chartY: ((pad.t + plotH - svgY) / plotH) * ymax,
+    };
+  }, []);
   useEffect(() => { currentIdxRef.current = currentIdx; }, [currentIdx]);
 
   // Helper: stamp the first-edit time for the current chromatogram the first
@@ -2587,38 +2611,19 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
 
   // Keep domain in a ref so pointermove can always compute fxInv with current values
   // without depending on stale useCallback closures or useEffect-lagged refs.
-  const domainRef = useRef(domain);
   useEffect(() => { domainRef.current = domain; }, [domain]);
 
   // Keep refs to hot-path scale functions so the pointer-move handler never
   // closes over stale values — avoids the handle lag/jump on each re-render.
   const fxInvRef = useRef(fxInv);
   const fxScaleRef = useRef(fxScale);
-  const fpadRef = useRef(fpad);
-  const fplotWRef = useRef(fplotW);
+
+
   useEffect(() => { fxInvRef.current = fxInv; }, [fxInv]);
   useEffect(() => { fxScaleRef.current = fxScale; }, [fxScale]);
   useEffect(() => { fpadRef.current = fpad; }, [fpad]);
   useEffect(() => { fplotWRef.current = fplotW; }, [fplotW]);
-
-  // ── Helper: screen pixel → chart data coordinates ──────────────────────────
-  // Declared here so yMax, fpad, fplotW, domain are all in scope.
-  const yMaxRef = useRef(yMax);
   useEffect(() => { yMaxRef.current = yMax; }, [yMax]);
-
-  const screenToChart = useCallback((clientX, clientY) => {
-    const r = svgRef.current?.getBoundingClientRect();
-    if (!r) return null;
-    const svgX = (clientX - r.left) * (FW / r.width);
-    const svgY = (clientY - r.top)  * (FH / r.height);
-    const pad = fpadRef.current, pw = fplotWRef.current, dom = domainRef.current;
-    const plotH = FH - pad.t - 56;
-    if (svgX < pad.l || svgX > pad.l + pw || svgY < pad.t || svgY > pad.t + plotH) return null;
-    return {
-      chartX: dom[0] + ((svgX - pad.l) / pw) * (dom[1] - dom[0]),
-      chartY: ((pad.t + plotH - svgY) / plotH) * yMaxRef.current,
-    };
-  }, []);
 
   // svgCallbackRef attaches the wheel listener the moment the SVG element
   // enters the DOM — fixes the race condition where useEffect([]) ran before
@@ -3792,6 +3797,24 @@ function CompletionScreen({ status, onRetry }) {
   );
 }
 
+// ── Root ──
+export default function App() {
+  const [session, setSession] = useState(null);
+
+  // Parse Prolific URL params once on load
+  const prolificParams = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      prolificPid: params.get("PROLIFIC_PID") || null,
+      studyId: params.get("STUDY_ID") || null,
+      sessionId: params.get("SESSION_ID") || null,
+    };
+  }, []);
+
+  if (!session) return <WelcomeScreen onStart={(s) => setSession({ ...s, ...prolificParams })} />;
+  return <StudyFlow session={session} />;
+}
+
 // ── Study Flow (manages annotation → surveys → export) ──
 function StudyFlow({ session }) {
   // phase: "annotate" | "nasa_tlx" | "feedback" | "demographics" | "complete"
@@ -4029,22 +4052,4 @@ function StudyFlow({ session }) {
       onRetry={() => finalResultsRef.current && doUpload(finalResultsRef.current)}
     />
   );
-}
-
-// ── Root ──
-export default function App() {
-  const [session, setSession] = useState(null);
-
-  // Parse Prolific URL params once on load
-  const prolificParams = useMemo(() => {
-    const params = new URLSearchParams(window.location.search);
-    return {
-      prolificPid: params.get("PROLIFIC_PID") || null,
-      studyId: params.get("STUDY_ID") || null,
-      sessionId: params.get("SESSION_ID") || null,
-    };
-  }, []);
-
-  if (!session) return <WelcomeScreen onStart={(s) => setSession({ ...s, ...prolificParams })} />;
-  return <StudyFlow session={session} />;
 }
