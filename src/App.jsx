@@ -3801,39 +3801,69 @@ function DemographicsSurvey({ onComplete, onQuit }) {
 // ══════════════════════════════════════════
 //  Completion Screen
 // ══════════════════════════════════════════
-function CompletionScreen({ uploadSucceeded }) {
+// status: "uploading" | "success" | "error"
+function CompletionScreen({ status, onRetry }) {
   const PROLIFIC_CODE = "CEJ155DD";
   return (
     <div style={{ fontFamily: "'IBM Plex Sans',system-ui,sans-serif", background: "linear-gradient(160deg,#f0f4ff 0%,#f8f9fb 40%,#faf5ff 100%)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div style={{ maxWidth: 480, width: "100%", textAlign: "center", padding: 32 }}>
-        {!uploadSucceeded ? (
+
+        {status === "uploading" && (
           <>
             <div style={{ fontSize: 40, marginBottom: 16 }}>⏳</div>
             <h1 style={{ fontSize: 24, fontWeight: 800, color: "#1e293b", marginBottom: 8 }}>Saving your results…</h1>
             <p style={{ fontSize: 15, color: "#64748b", lineHeight: 1.6 }}>
-              Please wait while your data is uploaded. Your completion code will appear here once it's saved.
+              Please <strong>do not close this tab</strong> while your data is being uploaded.
+              Your completion code will appear here once saving is complete.
             </p>
           </>
-        ) : (
+        )}
+
+        {status === "success" && (
           <>
             <div style={{ fontSize: 56, marginBottom: 16 }}>&#10003;</div>
             <h1 style={{ fontSize: 28, fontWeight: 800, color: "#059669", marginBottom: 8 }}>Study Complete</h1>
             <p style={{ fontSize: 15, color: "#64748b", lineHeight: 1.6, marginBottom: 24 }}>
-              Thank you for participating! Your results have been saved.
+              Thank you for participating! Your results have been saved successfully.
             </p>
             <div style={{ padding: "20px 24px", background: "#f0fdf4", borderRadius: 12, border: "2px solid #86efac", marginBottom: 20 }}>
               <p style={{ fontSize: 13, fontWeight: 700, color: "#166534", margin: "0 0 8px 0", textTransform: "uppercase", letterSpacing: "0.05em" }}>Your Prolific Completion Code</p>
               <p style={{ fontSize: 32, fontWeight: 900, color: "#15803d", margin: 0, letterSpacing: "0.1em" }}>{PROLIFIC_CODE}</p>
-              <p style={{ fontSize: 12, color: "#4ade80", marginTop: 8, marginBottom: 0 }}>Copy this code and paste it into Prolific to receive your payment.</p>
+              <p style={{ fontSize: 12, color: "#166534", marginTop: 8, marginBottom: 0 }}>Copy this code and paste it into Prolific to receive your payment.</p>
             </div>
           </>
         )}
-        <div style={{ marginTop: 16, padding: "16px 20px", background: "#f8fafc", borderRadius: 10, border: "1px solid #e5e7eb" }}>
-          <p style={{ fontSize: 13, color: "#475569", lineHeight: 1.6, margin: 0 }}>
-            If you have any questions or comments about this study, please contact us at{" "}
-            <a href="mailto:jcaitlin@wustl.edu" style={{ color: "#1e40af", fontWeight: 600, textDecoration: "none" }}>jcaitlin@wustl.edu</a>
-          </p>
-        </div>
+
+        {status === "error" && (
+          <>
+            <div style={{ fontSize: 40, marginBottom: 16 }}>⚠️</div>
+            <h1 style={{ fontSize: 24, fontWeight: 800, color: "#dc2626", marginBottom: 8 }}>Upload Failed</h1>
+            <p style={{ fontSize: 15, color: "#64748b", lineHeight: 1.6, marginBottom: 20 }}>
+              Your results could not be saved — this is usually caused by a network issue.
+              Please check your internet connection and try again.
+              <br /><br />
+              <strong>Do not close this tab.</strong> Your data is still in memory and can be re-uploaded by clicking the button below.
+            </p>
+            <button onClick={onRetry}
+              style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: "#1e40af", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", marginBottom: 12 }}>
+              Retry Upload
+            </button>
+            <p style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.5 }}>
+              If this keeps failing, please contact us at{" "}
+              <a href="mailto:jcaitlin@wustl.edu" style={{ color: "#1e40af", fontWeight: 600 }}>jcaitlin@wustl.edu</a>{" "}
+              and we will ensure you receive your payment.
+            </p>
+          </>
+        )}
+
+        {status === "success" && (
+          <div style={{ marginTop: 16, padding: "16px 20px", background: "#f8fafc", borderRadius: 10, border: "1px solid #e5e7eb" }}>
+            <p style={{ fontSize: 13, color: "#475569", lineHeight: 1.6, margin: 0 }}>
+              If you have any questions or comments about this study, please contact us at{" "}
+              <a href="mailto:jcaitlin@wustl.edu" style={{ color: "#1e40af", fontWeight: 600, textDecoration: "none" }}>jcaitlin@wustl.edu</a>
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -3864,7 +3894,11 @@ function StudyFlow({ session }) {
   const [annotationResults, setAnnotationResults] = useState(null);
   const [nasaTlxResults, setNasaTlxResults] = useState(null);
   const [feedbackResults, setFeedbackResults] = useState(null);
-  const [uploadSucceeded, setUploadSucceeded] = useState(false);
+  // uploadStatus: "uploading" | "success" | "error"
+  const [uploadStatus, setUploadStatus] = useState("uploading");
+  // Keep final results in a ref so the retry button can re-attempt without
+  // needing to rebuild the entire results object.
+  const finalResultsRef = useRef(null);
 
   const handleAnnotationDone = (results) => {
     setAnnotationResults(results);
@@ -4048,23 +4082,44 @@ function StudyFlow({ session }) {
       },
     };
 
-    // Upload to Firebase — this is the only export path
+    // Store results so retry can re-use them without rebuilding
+    finalResultsRef.current = finalResults;
+
+    // Move to completion screen immediately (shows spinner) then upload.
+    // beforeunload guard is attached below to warn the user not to close the tab.
+    setUploadStatus("uploading");
+    setPhase("complete");
+    doUpload(finalResults);
+  };
+
+  // ── Upload function — called on first attempt and on retry ──
+  const doUpload = useCallback(async (results) => {
+    setUploadStatus("uploading");
     try {
       await addDoc(collection(db, "study_results"), {
         submittedAt: new Date(),
         userName: session.userName,
-        data: finalResults,
+        data: results,
       });
-      setUploadSucceeded(true);
+      setUploadStatus("success");
     } catch (err) {
       console.error("Firebase upload failed:", err);
-      // No local download fallback — log the error silently and still
-      // advance to completion so the participant can receive their code.
-      setUploadSucceeded(false);
+      setUploadStatus("error");
     }
+  }, [session.userName]);
 
-    setPhase("complete");
-  };
+  // ── beforeunload guard: warn the user not to close the tab while uploading ──
+  useEffect(() => {
+    if (phase !== "complete" || uploadStatus === "success") return;
+    const handler = (e) => {
+      e.preventDefault();
+      // Modern browsers require returnValue to be set to show the dialog
+      e.returnValue = "Your results are still being saved. Are you sure you want to leave?";
+      return e.returnValue;
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [phase, uploadStatus]);
 
   if (phase === "annotate") {
     return <AnnotationScreen datasets={session.datasets} vizMode={session.vizMode} userName={session.userName} prolificParams={{ prolificPid: session.prolificPid, studyId: session.studyId, sessionId: session.sessionId }} onStudyComplete={handleAnnotationDone} onQuit={(results) => handleQuit(results)} />;
@@ -4078,5 +4133,10 @@ function StudyFlow({ session }) {
   if (phase === "demographics") {
     return <DemographicsSurvey onComplete={handleDemographicsDone} onQuit={() => handleQuit()} />;
   }
-  return <CompletionScreen uploadSucceeded={uploadSucceeded} />;
+  return (
+    <CompletionScreen
+      status={uploadStatus}
+      onRetry={() => finalResultsRef.current && doUpload(finalResultsRef.current)}
+    />
+  );
 }
