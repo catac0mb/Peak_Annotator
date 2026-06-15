@@ -1116,7 +1116,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
           title: "Reading the Threshold Bars",
           instruction: "The side panel shows five horizontal bars for each AI detection — one for each criterion above.\n\nThe tick mark in the centre of each bar is the detection threshold the algorithm learned for that criterion. The coloured dot shows where this particular peak\'s measured value falls:\n\n\u2022 Green dot to the right \u2192 above threshold \u2014 this criterion supports the detection\n\u2022 Red dot to the left \u2192 below threshold \u2014 this criterion weakens the detection\n\nThe further right the dot, the stronger the evidence. The further left, the weaker.\n\nKey insight: a detected peak with dots far to the right on all five bars is almost certainly a real chromatographic peak. A detection with several dots near the centre or to the left is borderline \u2014 look at the signal carefully before accepting it.\n\nLook at the detection at t\u22489.80 \u2014 its S/N and Area bars sit to the left of centre (below threshold), indicating the algorithm flagged it but the evidence is weak. It is likely just baseline noise.\n\nTry clicking on peaks in the panel below to see their bars.",
           task: "Click on a peak to see its threshold bars",
-          isDone: hasHoveredPeak,
+          isDone: hasSelectedPeak,
           feedback: null,
         });
       }
