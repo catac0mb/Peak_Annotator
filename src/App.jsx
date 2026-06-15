@@ -3792,24 +3792,6 @@ function CompletionScreen({ status, onRetry }) {
   );
 }
 
-// ── Root ──
-export default function App() {
-  const [session, setSession] = useState(null);
-
-  // Parse Prolific URL params once on load
-  const prolificParams = useMemo(() => {
-    const params = new URLSearchParams(window.location.search);
-    return {
-      prolificPid: params.get("PROLIFIC_PID") || null,
-      studyId: params.get("STUDY_ID") || null,
-      sessionId: params.get("SESSION_ID") || null,
-    };
-  }, []);
-
-  if (!session) return <WelcomeScreen onStart={(s) => setSession({ ...s, ...prolificParams })} />;
-  return <StudyFlow session={session} />;
-}
-
 // ── Study Flow (manages annotation → surveys → export) ──
 function StudyFlow({ session }) {
   // phase: "annotate" | "nasa_tlx" | "feedback" | "demographics" | "complete"
@@ -4047,4 +4029,22 @@ function StudyFlow({ session }) {
       onRetry={() => finalResultsRef.current && doUpload(finalResultsRef.current)}
     />
   );
+}
+
+// ── Root ──
+export default function App() {
+  const [session, setSession] = useState(null);
+
+  // Parse Prolific URL params once on load
+  const prolificParams = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      prolificPid: params.get("PROLIFIC_PID") || null,
+      studyId: params.get("STUDY_ID") || null,
+      sessionId: params.get("SESSION_ID") || null,
+    };
+  }, []);
+
+  if (!session) return <WelcomeScreen onStart={(s) => setSession({ ...s, ...prolificParams })} />;
+  return <StudyFlow session={session} />;
 }
