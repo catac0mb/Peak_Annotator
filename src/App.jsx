@@ -1078,7 +1078,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
       if (vizMode !== "peaks_only") {
         allSteps.push({
           title: "Confidence Icons",
-          instruction: "Each AI-detected peak has a colored circle above it showing the algorithm's confidence in that detection:\n\n\u2022 Deep green = very high confidence (90\u2013100%)\n\u2022 Yellow/orange = moderate confidence (40\u201369%)\n\u2022 Red = low confidence (below 40%)\n\nLook at the practice chart: the peak at t\u22482.50 has 95% confidence, the peak at t\u22485.00 has 68%, and the detection at t\u22489.80 has only 28%. Low-confidence detections are the ones most likely to need your attention.",
+          instruction: "Each AI-detected peak has a colored circle above it showing the algorithm's confidence in that detection:\n\n\u2022 Deep green = very high confidence (90\u2013100%)\n\u2022 Yellow/orange = moderate confidence (40\u201369%)\n\u2022 Red = low confidence (below 40%)\n\nLook at the practice chart: the peak at t\u22482.50 has 95% confidence, the peak at t\u22485.00 has 68%, and the detection at t\u22489.80 has only 28%. Low and moderate-confidence detections are the ones most likely to need your attention.",
           task: null,
           isDone: true,
           feedback: null,
@@ -1089,8 +1089,8 @@ function TutorialScreen({ vizMode, onDismiss }) {
       if (vizMode === "normal_explain") {
         allSteps.push({
           title: "Reading the Explanations",
-          instruction: "The side panel shows why the AI detected each peak. Hover over or click a peak row to see its explanation — it describes the features (prominence, width, height) that contributed to the detection.\n\nTry hovering over the detection at t\u22489.80 in the side panel to read why the AI flagged it.",
-          task: "Hover over a peak to read its explanation",
+          instruction: "The side panel shows why the AI detected each peak. Click a peak pill to see its explanation — it describes the features (prominence, width, height, signal to noise ratio, and peak area) that contributed to the detection.\n\nTry clicking on the detection at t\u22489.80 in the side panel to read why the AI flagged it.",
+          task: "Click on a peak to read its explanation",
           isDone: hasHoveredPeak,
           feedback: null,
         });
@@ -1107,15 +1107,15 @@ function TutorialScreen({ vizMode, onDismiss }) {
       if (vizMode === "threshold_bars") {
         allSteps.push({
           title: "Understanding the Five Detection Criteria",
-          instruction: "The AI peak-detection algorithm evaluates five properties of every signal feature. Understanding these will help you assess whether a detection is real:\n\n\u2022 Prominence \u2014 How much a peak \u2018stands out\u2019 above surrounding signal. A prominent peak rises well above its neighbours; a low-prominence bump barely lifts above the baseline. High prominence strongly indicates a real peak.\n\n\u2022 Width \u2014 The horizontal span of the peak at half its height. Real chromatographic peaks have a characteristic minimum width determined by how compounds travel through the column. Very narrow spikes are usually electrical noise or artefacts.\n\n\u2022 Height \u2014 The absolute signal intensity at the peak apex above the baseline. Too-small heights indicate the signal may not have risen meaningfully above background.\n\n\u2022 S/N \u2014 Signal-to-Noise Ratio. Measures how large the peak is compared to the random noise fluctuations in the surrounding baseline. A high S/N means the peak is unlikely to be explained by noise alone. Low S/N (e.g., below 2\u20133) suggests the \u2018peak\u2019 could simply be a noise spike.\n\n\u2022 Peak Area \u2014 The total area under the peak curve above the baseline. A real chromatographic peak has meaningful area; a narrow noise spike has near-zero area even if it looks tall.",
+          instruction: "The AI peak-detection algorithm evaluates five properties of every feature of the data. Understanding these will help you assess whether a detection is real:\n\n\u2022 Prominence \u2014 How much a peak \u2018stands out\u2019 above surrounding signal. A prominent peak rises well above its neighbours; a low-prominence bump barely lifts above the baseline. High prominence strongly indicates a real peak.\n\n\u2022 Width \u2014 The horizontal span of the peak at half its height. Very narrow spikes are usually electrical noise or artefacts.\n\n\u2022 Height \u2014 The absolute signal intensity at the peak apex above the baseline. Too-small heights indicate the signal may not have risen meaningfully above background noise.\n\n\u2022 S/N \u2014 Signal-to-Noise Ratio. Measures how large the peak is compared to the random noise fluctuations in the surrounding baseline. A high S/N means the peak is unlikely to be explained by noise alone. Low S/N (e.g., below 2\u20133) suggests the \u2018peak\u2019 could simply be a noise spike.\n\n\u2022 Peak Area \u2014 The total area under the peak curve above the baseline. A real chromatographic peak has meaningful area; a narrow noise spike has near-zero area even if it looks tall.",
           task: null,
           isDone: true,
           feedback: null,
         });
         allSteps.push({
           title: "Reading the Threshold Bars",
-          instruction: "The side panel shows five horizontal bars for each AI detection — one for each criterion above.\n\nThe tick mark in the centre of each bar is the detection threshold the algorithm learned for that criterion. The coloured dot shows where this particular peak\'s measured value falls:\n\n\u2022 Green dot to the right \u2192 above threshold \u2014 this criterion supports the detection\n\u2022 Red dot to the left \u2192 below threshold \u2014 this criterion weakens the detection\n\nThe further right the dot, the stronger the evidence. The further left, the weaker.\n\nKey insight: a detected peak with dots far to the right on all five bars is almost certainly a real chromatographic peak. A detection with several dots near the centre or to the left is borderline \u2014 look at the signal carefully before accepting it.\n\nLook at the detection at t\u22489.80 \u2014 its S/N and Area bars sit to the left of centre (below threshold), indicating the algorithm flagged it but the evidence is weak. It is likely just baseline noise.\n\nTry hovering over peaks in the side panel to see their bars.",
-          task: "Hover over a peak to see its threshold bars",
+          instruction: "The side panel shows five horizontal bars for each AI detection — one for each criterion above.\n\nThe tick mark in the centre of each bar is the detection threshold the algorithm learned for that criterion. The coloured dot shows where this particular peak\'s measured value falls:\n\n\u2022 Green dot to the right \u2192 above threshold \u2014 this criterion supports the detection\n\u2022 Red dot to the left \u2192 below threshold \u2014 this criterion weakens the detection\n\nThe further right the dot, the stronger the evidence. The further left, the weaker.\n\nKey insight: a detected peak with dots far to the right on all five bars is almost certainly a real chromatographic peak. A detection with several dots near the centre or to the left is borderline \u2014 look at the signal carefully before accepting it.\n\nLook at the detection at t\u22489.80 \u2014 its S/N and Area bars sit to the left of centre (below threshold), indicating the algorithm flagged it but the evidence is weak. It is likely just baseline noise.\n\nTry clicking on peaks in the panel below to see their bars.",
+          task: "Click on a peak to see its threshold bars",
           isDone: hasHoveredPeak,
           feedback: null,
         });
