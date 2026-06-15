@@ -680,7 +680,7 @@ function isTutWidthReasonable(peak, target, fullRange = 12, maxMult = 5, maxFrac
 
 // Ground-truth targets for the three real peaks
 const GROUND_TRUTH_PEAKS = [
-  { id: "gt1", apex: 2.5, start: 1.8, end: 3.2 },
+  { id: "gt1", apex: 2.5, start: 1.4, end: 3.5 },
   { id: "gt2", apex: 5.0, start: 4.2, end: 5.8 },
   { id: "gt3", apex: 7.5, start: 6.9, end: 8.1 },  // the peak the AI misses
 ];
@@ -789,7 +789,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
     if (!moved) feedback = "The boundaries are still at the AI's original (too tight) positions. Drag the handles outward to widen them.";
     else if (!widthOk) feedback = "Your peak boundaries are still too narrow. Widen the start and end boundaries.";
     else if (!boundsOk && !apexOk) feedback = "The apex and boundaries are not close enough to the real peak. Keep adjusting.";
-    else if (!boundsOk) feedback = "Getting closer! The real peak starts around t\u22481.8 and ends around t\u22483.2.";
+    else if (!boundsOk) feedback = "Getting closer! The real peak starts around t\u22481.4 and ends around t\u22483.5.";
     else if (correct) feedback = "Correct! The boundaries now match the real peak.";
     else feedback = "Almost there — keep adjusting the boundaries.";
 
@@ -860,7 +860,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
     let feedback = "";
     if (!apexOk) feedback = "That is not the target peak. Move the apex handle closer to t\u22482.5.";
     else if (!widthOk) feedback = "Your tagged peak is too wide. Narrow the boundaries.";
-    else if (!boundsOk) feedback = "The apex is on the right peak! Now adjust the start and end boundaries to fit the peak shape (start \u2248 1.8, end \u2248 3.2).";
+    else if (!boundsOk) feedback = "The apex is on the right peak! Now adjust the start and end boundaries to fit the peak shape (start \u2248 1.4, end \u2248 3.5).";
     else if (correct) feedback = "Correct! Your peak boundaries match the real peak.";
     else feedback = "Almost there — keep adjusting.";
 
@@ -1184,7 +1184,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
       // Adjust with live validation feedback
       allSteps.push({
         title: "Adjusting Peak Boundaries",
-        instruction: "With a peak selected, three handles appear below the chart:\n\n\u2022 \u25B6 Start boundary (where the peak begins rising)\n\u2022 \u25C6 Apex (the highest point)\n\u2022 \u25C0 End boundary (where the peak returns to baseline)\n\nDrag the handles to position them on the peak near t\u22482.5 until the feedback below turns green. The real peak runs roughly from t\u22481.8 to t\u22483.2.",
+        instruction: "With a peak selected, three handles appear below the chart:\n\n\u2022 \u25B6 Start boundary (where the peak begins rising)\n\u2022 \u25C6 Apex (the highest point)\n\u2022 \u25C0 End boundary (where the peak returns to baseline)\n\nDrag the handles to position them on the peak near t\u22482.5 until the feedback below turns green. The real peak runs roughly from t\u22481.4 to t\u22483.5.",
         task: "Place your peak's boundaries on the peak near t\u22482.5",
         isDone: nonePeakValidation.correct,
         feedback: nonePeakValidation.feedback,
