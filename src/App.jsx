@@ -74,13 +74,35 @@ function parseExplanationsJSON(text) {
         confidence: conf == null ? null : Math.round(conf),
       });
 
+      // Build thresholds object from explicit JSON fields if present,
+      // so the ThresholdBar component always has exact values rather
+      // than having to re-parse the explanation text.
+      const featureText = e.feature_explanation || e.hybrid_explanation || "";
+      let thresholds = null;
+      if (
+        typeof e.prominence_percent_above_threshold === "number" &&
+        typeof e.width_percent_above_threshold === "number" &&
+        typeof e.height_percent_above_threshold === "number"
+      ) {
+        thresholds = {
+          prominence: e.prominence_percent_above_threshold,
+          width:      e.width_percent_above_threshold,
+          height:     e.height_percent_above_threshold,
+        };
+        if (typeof e.snr_percent_above_threshold === "number") {
+          thresholds.snr = e.snr_percent_above_threshold;
+        }
+        if (typeof e.area_percent_above_threshold === "number") {
+          thresholds.area = e.area_percent_above_threshold;
+        }
+      }
       explanations.push({
-        feature: e.feature_explanation || e.hybrid_explanation || "",
+        feature: featureText,
         counterfactual: e.counterfactual_explanation || "",
-        // No parsed params are rendered anymore — the feature/counterfactual
-        // strings already include the numerical detail. Keep the key so the
-        // downstream `params` lookup returns null cleanly.
         params: null,
+        // Pre-parsed threshold margins — used directly by ThresholdBar
+        // (falls back to parseThresholdPcts on the feature text if null)
+        thresholds,
       });
     });
     return { peaks, explanations };
@@ -116,14 +138,15 @@ const confBg = c => `hsla(${confHue(c)}, 75%, 38%, 0.12)`;
 const fmt = n => n == null ? "—" : Math.abs(n) >= 100 ? n.toFixed(1) : Math.abs(n) >= 10 ? n.toFixed(2) : n.toFixed(3);
 
 // Parse "X% above/below threshold" from feature explanation text
-// Returns { prominence, width, height } where each is a signed number
+// Returns { prominence, width, height, snr?, area? } where each is a signed number
 // (positive = above threshold, negative = below threshold)
+// SNR and area are optional — only present when their thresholds were active.
 function parseThresholdPcts(featureText) {
   if (!featureText) return null;
   const result = {};
-  const params = ["prominence", "width", "height"];
-  for (const p of params) {
-    // Match patterns like "prominence is 320% above threshold" or "height is 100.0% below threshold"
+  // Core three criteria (always present)
+  const coreParams = ["prominence", "width", "height"];
+  for (const p of coreParams) {
     const re = new RegExp(p + "\\s+is\\s+([\\d.]+)%\\s+(above|below)\\s+threshold", "i");
     const m = featureText.match(re);
     if (m) {
@@ -131,7 +154,22 @@ function parseThresholdPcts(featureText) {
       result[p] = m[2].toLowerCase() === "above" ? val : -val;
     }
   }
-  return Object.keys(result).length === 3 ? result : null;
+  // SNR — labelled as "S/N" in the explanation text
+  const snrRe = /S\/N\s+is\s+([\d.]+)%\s+(above|below)\s+threshold/i;
+  const snrM = featureText.match(snrRe);
+  if (snrM) {
+    const val = parseFloat(snrM[1]);
+    result.snr = snrM[2].toLowerCase() === "above" ? val : -val;
+  }
+  // Area
+  const areaRe = /area\s+is\s+([\d.]+)%\s+(above|below)\s+threshold/i;
+  const areaM = featureText.match(areaRe);
+  if (areaM) {
+    const val = parseFloat(areaM[1]);
+    result.area = areaM[2].toLowerCase() === "above" ? val : -val;
+  }
+  // Return null only if all three core criteria are missing
+  return Object.keys(result).filter(k => ["prominence","width","height"].includes(k)).length === 3 ? result : null;
 }
 
 // Threshold bar visualization component
@@ -829,9 +867,24 @@ const TUTORIAL_PEAKS = [
 ];
 
 const TUTORIAL_EXPLANATIONS = [
-  { feature: "This peak's prominence is 320.0% above threshold, width is 180.0% above threshold, and height is 270.0% above threshold.", counterfactual: "If prominence dropped by 76%, this peak would no longer be detected.", params: null, thresholds: { prominence: 320, width: 180, height: 270 } },
-  { feature: "This peak's prominence is 140.0% above threshold, width is 120.0% above threshold, and height is 150.0% above threshold.", counterfactual: "If width decreased by 55%, this peak would fall below the detection threshold.", params: null, thresholds: { prominence: 140, width: 120, height: 150 } },
-  { feature: "This peak's prominence is 8.0% above threshold, width is 5.0% above threshold, and height is 12.0% above threshold.", counterfactual: "If prominence dropped by just 8%, this detection would fail. This is a borderline detection.", params: null, thresholds: { prominence: 8, width: 5, height: 12 } },
+  {
+    feature: "This peak's prominence is 320.0% above threshold, width is 180.0% above threshold, height is 270.0% above threshold, S/N is 285.0% above threshold, and area is 350.0% above threshold.",
+    counterfactual: "If prominence dropped by 76%, this peak would no longer be detected.",
+    params: null,
+    thresholds: { prominence: 320, width: 180, height: 270, snr: 285, area: 350 },
+  },
+  {
+    feature: "This peak's prominence is 140.0% above threshold, width is 120.0% above threshold, height is 150.0% above threshold, S/N is 85.0% above threshold, and area is 130.0% above threshold.",
+    counterfactual: "If width decreased by 55%, this peak would fall below the detection threshold.",
+    params: null,
+    thresholds: { prominence: 140, width: 120, height: 150, snr: 85, area: 130 },
+  },
+  {
+    feature: "This peak's prominence is 8.0% above threshold, width is 5.0% above threshold, height is 12.0% above threshold, S/N is 55.0% below threshold, and area is 80.0% below threshold.",
+    counterfactual: "If prominence dropped by just 8%, this detection would fail. This is a borderline detection.",
+    params: null,
+    thresholds: { prominence: 8, width: 5, height: 12, snr: -55, area: -80 },
+  },
 ];
 
 function TutorialScreen({ vizMode, onDismiss }) {
@@ -1224,7 +1277,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
       if (vizMode === "threshold_bars") {
         allSteps.push({
           title: "Reading the Threshold Bars",
-          instruction: "The side panel shows three horizontal bars for each AI detection — one each for Prominence, Width, and Height. These are the three features the algorithm uses to decide if a signal is a peak.\n\nThe tick mark in the center of each bar represents the detection threshold. The colored dot shows where the peak's actual value falls:\n\n\u2022 Green dot to the right \u2192 above threshold (supports detection)\n\u2022 Red dot to the left \u2192 below threshold (weakens detection)\n\nA dot close to the center tick means the value barely meets (or barely misses) the threshold. Look at the detection at t\u22489.80 — its bars are barely to the right, suggesting it's borderline.\n\nTry hovering over peaks in the side panel to see their bars.",
+          instruction: "The side panel shows five horizontal bars for each AI detection — one each for Prominence, Width, Height, S/N (signal-to-noise ratio), and Area. These are the features the algorithm uses to decide if a signal is a peak.\n\nThe tick mark in the center of each bar represents the detection threshold. The colored dot shows where the peak's actual value falls:\n\n\u2022 Green dot to the right \u2192 above threshold (supports detection)\n\u2022 Red dot to the left \u2192 below threshold (weakens detection)\n\nA dot close to the center tick means the value barely meets (or barely misses) the threshold. Look at the detection at t\u22489.80 — its S/N and Area bars are to the left of center (below threshold), indicating this is likely a noise bump rather than a real peak.\n\nTry hovering over peaks in the side panel to see their bars.",
           task: "Hover over a peak to see its threshold bars",
           isDone: hasHoveredPeak,
           feedback: null,
@@ -1772,6 +1825,8 @@ function TutorialScreen({ vizMode, onDismiss }) {
                             <ThresholdBar label="Prominence" pct={tutThresholds.prominence} width={360} />
                             <ThresholdBar label="Width" pct={tutThresholds.width} width={360} />
                             <ThresholdBar label="Height" pct={tutThresholds.height} width={360} />
+                            {tutThresholds.snr != null && <ThresholdBar label="S/N (Signal-to-Noise)" pct={tutThresholds.snr} width={360} />}
+                            {tutThresholds.area != null && <ThresholdBar label="Peak Area" pct={tutThresholds.area} width={360} />}
                           </>}
                         </div>
                       );
@@ -2581,7 +2636,11 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
   const selEx   = selPeak ? (explanationMap.get(selPeak.id) || null) : null;
   const selHasExplanation = vizMode === "normal_explain" || vizMode === "counterfactual_explain";
   const selTxt  = selHasExplanation ? (selEx ? (vizMode === "normal_explain" ? selEx.feature : selEx.counterfactual) : "No explanation available.") : null;
-  const selThresholds = (vizMode === "threshold_bars" && selEx) ? (selEx.thresholds || parseThresholdPcts(selEx.feature)) : null;
+  // For threshold_bars: use pre-parsed thresholds from JSON if available,
+  // fall back to regex-parsing the feature explanation text.
+  const selThresholds = (vizMode === "threshold_bars" && selEx)
+    ? (selEx.thresholds || parseThresholdPcts(selEx.feature))
+    : null;
   const selIsUserPeak = selPeak?.id?.startsWith("user_");
 
   // Task banner copy (condition-aware)
@@ -3231,9 +3290,14 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
               )}
               {selThresholds && (
                 <div style={{ padding: "8px 16px", background: "#f8fafc", borderBottom: "1px solid #e5e7eb" }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>
+                    Detection margins — how far each value is from its threshold
+                  </div>
                   <ThresholdBar label="Prominence" pct={selThresholds.prominence} width={260} />
                   <ThresholdBar label="Width" pct={selThresholds.width} width={260} />
                   <ThresholdBar label="Height" pct={selThresholds.height} width={260} />
+                  {selThresholds.snr != null && <ThresholdBar label="S/N (Signal-to-Noise)" pct={selThresholds.snr} width={260} />}
+                  {selThresholds.area != null && <ThresholdBar label="Peak Area" pct={selThresholds.area} width={260} />}
                 </div>
               )}
 
