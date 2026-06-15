@@ -1825,25 +1825,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
     return () => clearInterval(iv);
   }, []);
 
-  // ── Helper: screen pixel → chart data coordinates ────────────────────────
-  // Returns { chartX (time), chartY (signal) } or null if outside the plot.
-  // Uses live refs so it never reads stale closure values.
-  const yMaxRef = useRef(yMax);
-  useEffect(() => { yMaxRef.current = yMax; }, [yMax]);
 
-  const screenToChart = useCallback((clientX, clientY) => {
-    const r = svgRef.current?.getBoundingClientRect();
-    if (!r) return null;
-    const svgX = (clientX - r.left) * (FW / r.width);
-    const svgY = (clientY - r.top)  * (FH / r.height);
-    const pad = fpadRef.current, pw = fplotWRef.current, dom = domainRef.current;
-    const plotH = FH - pad.t - 56;
-    if (svgX < pad.l || svgX > pad.l + pw || svgY < pad.t || svgY > pad.t + plotH) return null;
-    return {
-      chartX: dom[0] + ((svgX - pad.l) / pw) * (dom[1] - dom[0]),
-      chartY: ((pad.t + plotH - svgY) / plotH) * yMaxRef.current,
-    };
-  }, []);
 
   // ── Global pointer + mouse listeners ────────────────────────────────────────
   const cursorSampleTimerRef = useRef(null);
@@ -2618,6 +2600,25 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
   useEffect(() => { fxScaleRef.current = fxScale; }, [fxScale]);
   useEffect(() => { fpadRef.current = fpad; }, [fpad]);
   useEffect(() => { fplotWRef.current = fplotW; }, [fplotW]);
+
+  // ── Helper: screen pixel → chart data coordinates ──────────────────────────
+  // Declared here so yMax, fpad, fplotW, domain are all in scope.
+  const yMaxRef = useRef(yMax);
+  useEffect(() => { yMaxRef.current = yMax; }, [yMax]);
+
+  const screenToChart = useCallback((clientX, clientY) => {
+    const r = svgRef.current?.getBoundingClientRect();
+    if (!r) return null;
+    const svgX = (clientX - r.left) * (FW / r.width);
+    const svgY = (clientY - r.top)  * (FH / r.height);
+    const pad = fpadRef.current, pw = fplotWRef.current, dom = domainRef.current;
+    const plotH = FH - pad.t - 56;
+    if (svgX < pad.l || svgX > pad.l + pw || svgY < pad.t || svgY > pad.t + plotH) return null;
+    return {
+      chartX: dom[0] + ((svgX - pad.l) / pw) * (dom[1] - dom[0]),
+      chartY: ((pad.t + plotH - svgY) / plotH) * yMaxRef.current,
+    };
+  }, []);
 
   // svgCallbackRef attaches the wheel listener the moment the SVG element
   // enters the DOM — fixes the race condition where useEffect([]) ran before
