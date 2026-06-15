@@ -589,16 +589,14 @@ async function loadDatasetsFromURLs(dataBaseUrl) {
 // Fixed data URL
 const DATA_URL = "https://catac0mb.github.io/Peak_Annotator/data";
 
-function WelcomeScreen({ onStart }) {
-  const [vizMode, setVizMode] = useState("");
+function WelcomeScreen({ vizMode, onStart }) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const canStart = !!vizMode && !loading;
-
   const handleStart = async () => {
-    if (!canStart) return;
-    setError(null); setLoading(true);
+    if (loading || !vizMode) return;
+    setError(null);
+    setLoading(true);
     try {
       const datasets = await loadDatasetsFromURLs(DATA_URL);
       const shuffled = [...datasets];
@@ -606,42 +604,63 @@ function WelcomeScreen({ onStart }) {
         const j = Math.floor(Math.random() * (i + 1));
         [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
       }
-      const anonId = "P_" + Date.now().toString(36).toUpperCase() + "_" + Math.random().toString(36).slice(2,6).toUpperCase();
+      const anonId = "P_" + Date.now().toString(36).toUpperCase() + "_" + Math.random().toString(36).slice(2, 6).toUpperCase();
       onStart({ userName: anonId, vizMode, datasets: shuffled });
-    } catch (e) { setError(e.message); }
+    } catch (e) {
+      setError(e.message);
+    }
     setLoading(false);
   };
 
-  const vizOptions = [
-    { id: "no_ai", label: "No AI", desc: "No AI suggestions — label all peaks yourself from scratch" },
-    { id: "peaks_only", label: "AI Peaks Only", desc: "AI-detected peak regions shown, but no confidence scores or explanations" },
-    { id: "confidence", label: "Confidence Icons", desc: "Color-coded confidence circles above each detected peak" },
-    { id: "threshold_bars", label: "Confidence + Threshold Bars", desc: "Confidence icons plus visual bars showing how far each peak's prominence, width, and height are from the detection threshold" },
-  ];
+  // Invalid / missing condition in URL — show a clear error rather than a broken page
+  if (!vizMode) {
+    return (
+      <div style={{ fontFamily: "'IBM Plex Sans',system-ui,sans-serif", background: "linear-gradient(160deg,#f0f4ff 0%,#f8f9fb 40%,#faf5ff 100%)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ maxWidth: 480, width: "100%", padding: 32 }}>
+          <div style={{ padding: "24px 28px", background: "#fef2f2", border: "1.5px solid #fca5a5", borderRadius: 14, fontSize: 14, color: "#dc2626", lineHeight: 1.7 }}>
+            <div style={{ fontSize: 20, marginBottom: 10 }}>⚠️ Invalid Study Link</div>
+            <p style={{ margin: "0 0 10px 0" }}>
+              Your study link is missing the required condition parameter. Please return to Prolific and use the exact link provided in the study description.
+            </p>
+            <p style={{ margin: 0, fontSize: 13, color: "#991b1b" }}>
+              If you believe this is an error, contact us at{" "}
+              <a href="mailto:jcaitlin@wustl.edu" style={{ color: "#1e40af", fontWeight: 600 }}>jcaitlin@wustl.edu</a>.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ fontFamily: "'IBM Plex Sans',system-ui,sans-serif", background: "linear-gradient(160deg,#f0f4ff 0%,#f8f9fb 40%,#faf5ff 100%)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ maxWidth: 580, width: "100%", padding: 32 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 800, color: "#1e293b", marginBottom: 2 }}>Chromatogram Peak Annotator</h1>
-        <p style={{ color: "#64748b", fontSize: 14, marginBottom: 28 }}>Select your assigned condition, then begin annotating.</p>
+      <div style={{ maxWidth: 560, width: "100%", padding: 32 }}>
 
-        <label style={{ fontSize: 13, fontWeight: 700, color: "#374151", display: "block", marginBottom: 8 }}>Visualization Condition</label>
-        <div style={{ display: "grid", gap: 8, marginBottom: 24 }}>
-          {vizOptions.map(v => (
-            <div key={v.id} onClick={() => setVizMode(v.id)}
-              style={{ padding: "12px 16px", borderRadius: 10, cursor: "pointer", transition: "all .15s", border: vizMode === v.id ? "2px solid #3b82f6" : "1px solid #d1d5db", background: vizMode === v.id ? "#eff6ff" : "#fff" }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: vizMode === v.id ? "#1d4ed8" : "#374151" }}>{v.label}</div>
-              <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{v.desc}</div>
-            </div>
-          ))}
+        <h1 style={{ fontSize: 30, fontWeight: 800, color: "#1e293b", marginBottom: 6 }}>Welcome to the Study</h1>
+        <p style={{ color: "#64748b", fontSize: 14, marginBottom: 28, lineHeight: 1.6 }}>
+          Thank you for participating! Please read the information below before continuing.
+        </p>
+
+        <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e5e7eb", padding: "24px 28px", marginBottom: 24, boxShadow: "0 2px 12px rgba(0,0,0,.05)" }}>
+          <p style={{ margin: "0 0 14px 0", fontSize: 14, color: "#374151", lineHeight: 1.7 }}>
+            In this study, you will be annotating chromatogram data. Click the button below to load the study data, and then an <strong>interactive tutorial</strong> will begin automatically.
+          </p>
+          <div style={{ padding: "14px 18px", background: "#fef3c7", borderRadius: 10, border: "1px solid #fde68a", fontSize: 13, color: "#92400e", lineHeight: 1.6 }}>
+            ⚠️ <strong>You may not begin the real task until you have successfully completed all tutorial steps.</strong>
+          </div>
         </div>
 
-        {error && <div style={{ padding: 10, background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, fontSize: 12, color: "#dc2626", marginBottom: 12 }}>{error}</div>}
+        {error && (
+          <div style={{ padding: "10px 14px", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, fontSize: 12, color: "#dc2626", marginBottom: 14, lineHeight: 1.5 }}>
+            {error}
+          </div>
+        )}
 
-        <button onClick={handleStart} disabled={!canStart}
-          style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: canStart ? "#1e40af" : "#94a3b8", color: "#fff", fontSize: 15, fontWeight: 700, cursor: canStart ? "pointer" : "not-allowed" }}>
-          {loading ? "Loading data\u2026" : "Begin Annotation"}
+        <button onClick={handleStart} disabled={loading}
+          style={{ width: "100%", padding: "16px", borderRadius: 12, border: "none", background: loading ? "#94a3b8" : "#1e40af", color: "#fff", fontSize: 16, fontWeight: 700, cursor: loading ? "not-allowed" : "pointer", letterSpacing: 0.2, boxShadow: loading ? "none" : "0 4px 16px rgba(30,64,175,.3)", transition: "all .15s" }}>
+          {loading ? "Loading study data…" : "Click here to load the study data"}
         </button>
+
       </div>
     </div>
   );
@@ -3801,17 +3820,30 @@ function CompletionScreen({ status, onRetry }) {
 export default function App() {
   const [session, setSession] = useState(null);
 
-  // Parse Prolific URL params once on load
-  const prolificParams = useMemo(() => {
+  // Parse all URL params once on load
+  const { prolificParams, urlCondition } = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
+    const VALID_CONDITIONS = ["no_ai", "peaks_only", "confidence", "threshold_bars"];
+    const c = params.get("condition");
     return {
-      prolificPid: params.get("PROLIFIC_PID") || null,
-      studyId: params.get("STUDY_ID") || null,
-      sessionId: params.get("SESSION_ID") || null,
+      prolificParams: {
+        prolificPid: params.get("PROLIFIC_PID") || null,
+        studyId: params.get("STUDY_ID") || null,
+        sessionId: params.get("SESSION_ID") || null,
+      },
+      // null if the param is missing or not one of the four valid values
+      urlCondition: VALID_CONDITIONS.includes(c) ? c : null,
     };
   }, []);
 
-  if (!session) return <WelcomeScreen onStart={(s) => setSession({ ...s, ...prolificParams })} />;
+  if (!session) {
+    return (
+      <WelcomeScreen
+        vizMode={urlCondition}
+        onStart={(s) => setSession({ ...s, ...prolificParams })}
+      />
+    );
+  }
   return <StudyFlow session={session} />;
 }
 
