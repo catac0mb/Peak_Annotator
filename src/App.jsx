@@ -1162,7 +1162,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
       // Delete false positive (Peak 3 at t=9.8 is on a flat region — just noise)
       allSteps.push({
         title: "Deleting a False Detection",
-        instruction: "Look at the detection at t\u22489.80" + (vizMode !== "peaks_only" ? " (confidence: 28%)" : "") + " \u2014 it's located in a flat region of the chromatogram with no real signal, just baseline noise. The AI incorrectly flagged a small noise fluctuation as a peak.\n\nWhen you determine that an AI detection is not a real peak, you should delete it. You can delete a peak in two ways:\n\u2022 Click the red \u2715 button on the peak pill in the panel below\n\u2022 Select the peak, then click \u00d7 Remove Peak in the action panel\n\nIf you accidentally delete a peak, it stays visible (grayed out) in the list \u2014 click it to restore it.",
+        instruction: "Look at the detection at t\u22489.80" + (vizMode !== "peaks_only" ? " (confidence: 28%)" : "") + " \u2014 it's located in a flat region of the chromatogram with no real signal, just baseline noise. The AI incorrectly flagged a small noise fluctuation as a peak.\n\nWhen you determine that an AI detection is not a real peak, you should delete it. You can delete a peak in two ways:\n\u2022 Click the red \u2715 button on the peak pill in the peak list at the bottom of the screen\n\u2022 Select the peak, then click the \u201cDelete Peak Annotation\u201d button in the action panel on the bottom right\n\nIf you accidentally delete a peak, it stays visible (grayed out) in the list \u2014 click it to restore it.",
         task: "Delete the false detection at t\u22489.80",
         isDone: falsePositiveDeleted,
         feedback: falsePositiveDeleted ? "Correct! You identified and removed the false detection from the flat baseline region." : "The false detection at t\u22489.80 is still present. Click the red \u2715 on its pill to delete it \u2014 notice how the signal there is flat with no real peak shape.",
@@ -1213,7 +1213,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
       // Delete
       allSteps.push({
         title: "Deleting a Peak",
-        instruction: "If you place a peak by mistake or decide a region is not actually a peak, you can delete it.\n\nClick the red \u2715 button on the peak pill in the list, or select the peak and click \u00d7 Remove Peak in the action panel.\n\nIf you delete a peak by accident, it stays visible grayed out in the list \u2014 click it to restore it.",
+        instruction: "If you place a peak by mistake or decide a region is not actually a peak, you can delete it in two ways:\n\u2022 Click the red \u2715 button on the peak pill in the peak list at the bottom of the screen\n\u2022 Select the peak, then click the \u201cDelete Peak Annotation\u201d button in the action panel on the bottom right\n\nIf you delete a peak by accident, it stays visible grayed out in the list \u2014 click it to restore it.",
         task: "Delete a peak using the \u2715 button on a pill",
         isDone: hasDeletedPeak,
         feedback: null,
@@ -1643,7 +1643,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
                     <div key={`del-${pk.id}`}
                       title="Click to restore"
                       style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "6px 12px", borderRadius: 20, background: "#f8fafc", border: "1.5px dashed #cbd5e1", cursor: "pointer", opacity: 0.55 }}
-                      onClick={() => setTutAnnotations(prev => prev.map(a => a.id === pk.id ? { ...a, deleted: false } : a))}>
+                      onClick={() => { setTutAnnotations(prev => prev.map(a => a.id === pk.id ? { ...a, deleted: false } : a)); setTutSelectedId(pk.id); }}>
                       <span style={{ fontSize: 10, color: "#94a3b8" }}>↩</span>
                       <span style={{ fontSize: 12, fontWeight: 500, color: "#94a3b8", textDecoration: "line-through" }}>Peak @ {fmt(pk.userApex)}</span>
                       <span style={{ fontSize: 9, color: "#94a3b8" }}>Restore</span>
@@ -2845,8 +2845,6 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
 
         <button onClick={() => setShowTutorial(true)} data-track="open_tutorial"
           style={{ padding: "5px 10px", borderRadius: 7, border: "1px solid rgba(255,255,255,.18)", background: "rgba(255,255,255,.05)", color: "rgba(255,255,255,.55)", fontSize: 11, cursor: "pointer" }}>?</button>
-        <button onClick={() => { if (window.confirm("Are you sure you want to quit the study? Your progress so far will be saved and exported.")) { const results = buildResults(); onQuit(results); } }} data-track="quit_study"
-          style={{ padding: "5px 11px", borderRadius: 7, border: "1px solid rgba(239,68,68,.35)", background: "rgba(239,68,68,.12)", color: "#fca5a5", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Quit Study</button>
       </div>
 
       {/* ── Task reminder banner ── */}
@@ -3172,6 +3170,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
                     style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "6px 12px", borderRadius: 20, background: "#f8fafc", border: "1.5px dashed #cbd5e1", cursor: "pointer", opacity: 0.55, transition: "all .12s" }}
                     onClick={() => {
                       setAnnotations(prev => prev.map(a => a.id === pk.id ? { ...a, deleted: false } : a));
+                      setSelectedPeakId(pk.id);
                       logEdit("restore_peak", pk.id, {
                         start: pk.userStart,
                         apex: pk.userApex,
@@ -3325,6 +3324,7 @@ function NasaTlxSurvey({ onComplete, onQuit }) {
     return r;
   });
   const [hoveredScale, setHoveredScale] = useState(null);
+  const [draggingScale, setDraggingScale] = useState(null);
   const [interacted, setInteracted] = useState(() => {
     const r = {};
     NASA_TLX_SCALES.forEach(s => { r[s.id] = false; });
@@ -3334,6 +3334,13 @@ function NasaTlxSurvey({ onComplete, onQuit }) {
   const handleClick = useCallback((id, val) => {
     setResponses(prev => ({ ...prev, [id]: val }));
     setInteracted(prev => ({ ...prev, [id]: true }));
+  }, []);
+
+  // Compute the snapped 0-100 value from a pointer position over the bar element
+  const valFromPointer = useCallback((clientX, el) => {
+    const rect = el.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return Math.max(0, Math.min(100, Math.round(frac * 100)));
   }, []);
 
   // Each scale is 0-100 with tick marks every 5 points (21 ticks)
@@ -3350,7 +3357,8 @@ function NasaTlxSurvey({ onComplete, onQuit }) {
 
         {NASA_TLX_SCALES.map(scale => {
           const val = responses[scale.id];
-          const isHovered = hoveredScale === scale.id;
+          const isDragging = draggingScale === scale.id;
+          const isHovered = hoveredScale === scale.id || isDragging;
           const touched = interacted[scale.id];
           return (
             <div key={scale.id} style={{ marginBottom: 28 }}
@@ -3363,15 +3371,22 @@ function NasaTlxSurvey({ onComplete, onQuit }) {
                 <span style={{ fontSize: 11, color: "#94a3b8", minWidth: 60, textAlign: "right" }}>{scale.low}</span>
 
                 {/* Scale bar with tick marks */}
-                <div style={{ flex: 1, position: "relative", height: 40, cursor: "pointer", userSelect: "none" }}
+                <div style={{ flex: 1, position: "relative", height: 40, cursor: "pointer", userSelect: "none", touchAction: "none" }}
                   data-track="nasa_tlx_scale" data-scale-id={scale.id}
-                  onClick={e => {
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-                    const raw = frac * 100;
-                    const snapped = Math.round(raw);
-                    handleClick(scale.id, Math.max(0, Math.min(100, snapped)));
-                  }}>
+                  onPointerDown={e => {
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    setDraggingScale(scale.id);
+                    handleClick(scale.id, valFromPointer(e.clientX, e.currentTarget));
+                  }}
+                  onPointerMove={e => {
+                    if (draggingScale !== scale.id) return;
+                    handleClick(scale.id, valFromPointer(e.clientX, e.currentTarget));
+                  }}
+                  onPointerUp={e => {
+                    setDraggingScale(null);
+                    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (err) {}
+                  }}
+                  onPointerCancel={() => setDraggingScale(null)}>
 
                   {/* Horizontal baseline */}
                   <div style={{ position: "absolute", top: 20, left: 0, right: 0, height: 2, background: "#cbd5e1" }} />
@@ -3438,10 +3453,6 @@ function NasaTlxSurvey({ onComplete, onQuit }) {
         <button onClick={() => onComplete(responses)} data-track="survey_nasa_tlx_submit"
           style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: "#1e40af", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", marginTop: 8 }}>
           Next Survey →
-        </button>
-        <button onClick={() => { if (window.confirm("Are you sure you want to quit the study? Your progress so far will be saved and exported.")) onQuit(); }} data-track="survey_quit"
-          style={{ width: "100%", padding: "10px", borderRadius: 10, border: "1px solid #fca5a5", background: "#fef2f2", color: "#dc2626", fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 8 }}>
-          Quit Study
         </button>
       </div>
     </div>
@@ -3572,10 +3583,6 @@ function FeedbackSurvey({ onComplete, onQuit }) {
           data-track="survey_feedback_submit"
           style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: allAnswered ? "#1e40af" : "#94a3b8", color: "#fff", fontSize: 15, fontWeight: 700, cursor: allAnswered ? "pointer" : "not-allowed", marginTop: 20 }}>
           Next Survey →
-        </button>
-        <button onClick={() => { if (window.confirm("Are you sure you want to quit the study? Your progress so far will be saved and exported.")) onQuit(); }} data-track="survey_quit"
-          style={{ width: "100%", padding: "10px", borderRadius: 10, border: "1px solid #fca5a5", background: "#fef2f2", color: "#dc2626", fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 8 }}>
-          Quit Study
         </button>
       </div>
     </div>
@@ -3735,10 +3742,6 @@ function DemographicsSurvey({ onComplete, onQuit }) {
           data-track="survey_demographics_submit"
           style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: allAnswered ? "#059669" : "#94a3b8", color: "#fff", fontSize: 15, fontWeight: 700, cursor: allAnswered ? "pointer" : "not-allowed", marginTop: 20 }}>
           Submit &amp; Finish Study
-        </button>
-        <button onClick={() => { if (window.confirm("Are you sure you want to quit the study? Your progress so far will be saved and exported.")) onQuit(); }} data-track="survey_quit"
-          style={{ width: "100%", padding: "10px", borderRadius: 10, border: "1px solid #fca5a5", background: "#fef2f2", color: "#dc2626", fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 8 }}>
-          Quit Study
         </button>
       </div>
     </div>
