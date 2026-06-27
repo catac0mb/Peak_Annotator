@@ -527,6 +527,32 @@ function describeClickTarget(el) {
   return { target: "unknown", peakId: null, peakIndex: null, handle: null };
 }
 
+// Convert a client/screen coordinate to the SVG's internal viewBox coordinate
+// space using the live screen CTM. Unlike the naive
+//   (clientX - rect.left) * (viewBoxWidth / rect.width)
+// this is correct even when the SVG is letterboxed/pillarboxed by
+// preserveAspectRatio (which happens whenever the rendered element's aspect
+// ratio differs from the viewBox's — e.g. a fixed-height, full-width chart on
+// a wide screen). The naive form is what made the scroll-zoom anchor drift
+// (clicking the y-axis origin anchored ~10% in, and the far left was only
+// reachable by moving the cursor outside the plot).
+//
+// Returns { x, y, unitsPerPxX, unitsPerPxY } in viewBox units, or null if the
+// CTM is unavailable (caller falls back to the naive mapping).
+function clientToSvgPoint(svg, clientX, clientY) {
+  if (!svg || typeof svg.getScreenCTM !== "function") return null;
+  const ctm = svg.getScreenCTM();
+  if (!ctm) return null;
+  const inv = ctm.inverse();
+  return {
+    x: inv.a * clientX + inv.c * clientY + inv.e,
+    y: inv.b * clientX + inv.d * clientY + inv.f,
+    // Forward CTM maps viewBox→screen; .a / .d are screen px per viewBox unit.
+    unitsPerPxX: ctm.a ? 1 / ctm.a : 1,
+    unitsPerPxY: ctm.d ? 1 / ctm.d : 1,
+  };
+}
+
 // ══════════════════════════════════════════════════════════════════
 //  URL-based data loading (GitHub Pages / static hosting)
 // ══════════════════════════════════════════════════════════════════
@@ -1263,19 +1289,19 @@ function TutorialScreen({ vizMode, onDismiss }) {
   const txTicks = useMemo(() => Array.from({ length: 9 }, (_, i) => tutDomain[0] + (i / 8) * (tutDomain[1] - tutDomain[0])), [tutDomain]);
   const tyTicks = useMemo(() => Array.from({ length: 6 }, (_, i) => (i / 5) * tYMax), [tYMax]);
 
-  // Build filled area path for a peak (same as main screen)
+  // Build filled area path for a peak (same as main screen).
+  // Fill the area between the signal curve and a straight baseline chord drawn
+  // from the peak's start sample to its end sample — NOT down to y=0. Tracing
+  // the curve and closing with `Z` makes the closing segment exactly that
+  // chord, so the shaded region represents the peak's area above its local
+  // baseline and never produces the strange shapes that appeared when the
+  // baseline dipped below zero.
   const buildTutPeakAreaPath = useCallback((pk) => {
-    const plotBottom = tpad.t + tPlotH;
     const pts = tutData.filter(d => d[0] >= pk.userStart && d[0] <= pk.userEnd);
-    if (pts.length < 2) {
-      const x0 = txScale(pk.userStart), x1 = txScale(pk.userEnd);
-      return `M${x0},${plotBottom} L${x0},${tpad.t} L${x1},${tpad.t} L${x1},${plotBottom} Z`;
-    }
+    if (pts.length < 2) return "";
     const top = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${txScale(p[0]).toFixed(1)},${tyScale(p[1]).toFixed(1)}`).join(' ');
-    const x1 = txScale(pts[pts.length - 1][0]).toFixed(1);
-    const x0 = txScale(pts[0][0]).toFixed(1);
-    return `${top} L${x1},${plotBottom} L${x0},${plotBottom} Z`;
-  }, [tutData, txScale, tyScale, tpad.t, tPlotH]);
+    return `${top} Z`;
+  }, [tutData, txScale, tyScale]);
 
   // Tutorial-specific task steps for the task banner
   const tutTaskSteps = vizMode === "none" || vizMode === "no_ai"
@@ -1770,6 +1796,9 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
   const [selectedPeakId, setSelectedPeakId] = useState(null);
   const [hoveredPeakId, setHoveredPeakId] = useState(null);
   const [showTutorial, setShowTutorial] = useState(true);
+  // Whether the "Quit study" confirmation modal is open. The quit button is an
+  // emergency early-exit that skips straight to the completion code.
+  const [showQuitConfirm, setShowQuitConfirm] = useState(false);
   const [, forceRender] = useState(0);
   const [tick, setTick] = useState(0);
 
@@ -1842,8 +1871,9 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
     const r = svgRef.current?.getBoundingClientRect();
     const pad = fpadRef.current, pw = fplotWRef.current, dom = domainRef.current, ymax = yMaxRef.current;
     if (!r || !pad || pw == null || !dom || ymax == null) return null;
-    const svgX = (clientX - r.left) * (FW / r.width);
-    const svgY = (clientY - r.top)  * (FH / r.height);
+    const sp = clientToSvgPoint(svgRef.current, clientX, clientY);
+    const svgX = sp ? sp.x : (clientX - r.left) * (FW / r.width);
+    const svgY = sp ? sp.y : (clientY - r.top)  * (FH / r.height);
     const plotH = FH - pad.t - 56;
     if (svgX < pad.l || svgX > pad.l + pw || svgY < pad.t || svgY > pad.t + plotH) return null;
     return {
@@ -2064,12 +2094,37 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
 
   const xMin = displayData.length > 0 ? displayData[0][0] : 0;
   const xMax = displayData.length > 0 ? displayData[displayData.length - 1][0] : 1;
-  const yMax = useMemo(() => Math.max(...displayData.map(d => d[1]), 1) * 1.12, [displayData]);
+  // Global maximum across the entire signal. Used for the overview/mini-map
+  // strip (which should stay stable while you zoom) and as a floor for the
+  // auto-fitting main-plot yMax below.
+  const yMaxGlobal = useMemo(() => Math.max(...displayData.map(d => d[1]), 1) * 1.12, [displayData]);
 
   const [domain, setDomain] = useState([xMin, xMax]);
   useEffect(() => { setDomain([xMin, xMax]); }, [xMin, xMax]);
 
-  // Log zoom/pan state after it settles. Debounced so that a single wheel
+  // Auto-fit helper: the Y max that makes the signal inside [a, b] fill the
+  // plot. Lets small peaks be zoomed up to show their prominence — previously
+  // yMax was pinned to the tallest peak in the whole chromatogram. Floored to a
+  // small fraction of the global max so a flat window doesn't collapse the axis.
+  const computeYFit = useCallback((a, b) => {
+    const lo = Math.min(a, b), hi = Math.max(a, b);
+    let visMax = 0;
+    for (let i = 0; i < displayData.length; i++) {
+      const d = displayData[i];
+      if (d[0] >= lo && d[0] <= hi && d[1] > visMax) visMax = d[1];
+    }
+    const globalRaw = yMaxGlobal / 1.12;            // undo the headroom factor
+    if (!(visMax > 0)) visMax = globalRaw;          // nothing visible → fall back
+    return Math.max(visMax, globalRaw * 0.04) * 1.12;
+  }, [displayData, yMaxGlobal]);
+
+  // Y axis re-fits only on ZOOM (wheel/pinch and Reset Zoom), not on pan — so
+  // the vertical scale stays put while you drag sideways and only changes when
+  // you actually change zoom level. Updated imperatively in the zoom handlers
+  // (batched with setDomain so there's no stale-scale flash) and reset to the
+  // full view whenever the chromatogram changes.
+  const [yMax, setYMax] = useState(() => yMaxGlobal);
+  useEffect(() => { setYMax(computeYFit(xMin, xMax)); }, [xMin, xMax, computeYFit]);
   // gesture doesn't produce dozens of entries — we care about "where did
   // the user end up looking?", not every intermediate frame.
   useEffect(() => {
@@ -2535,6 +2590,32 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
     onStudyComplete(results);
   };
 
+  // ── Quit study (emergency early exit) ──
+  // Distinct from "I'm done annotating — take me to the surveys": this skips the
+  // remaining chromatograms AND all surveys, uploads whatever data exists, and
+  // takes the participant straight to the final completion code. Gated behind a
+  // confirmation modal (see render) so it isn't hit by accident.
+  const doQuitStudy = () => {
+    const _psQ = [...activePeaks].sort((a, b) => a.userApex - b.userApex)
+      .map(p => ({ id: p.id, start: p.userStart, apex: p.userApex, end: p.userEnd, isAIPeak: !p.id.startsWith("user_"), confidence: p.confidence ?? null }));
+    T.chromFinalStates.push({ chromIdx: currentIdx, chromName: ds.name, snapshotTimeMs: Date.now() - T.sessionStart, domain: [...domain], peaks: _psQ });
+    pushInteraction(T, "quit_study", currentIdxRef.current, null, null, {
+      chromIdx: currentIdx,
+      peaksAnnotated: activePeaks.length,
+      totalChroms: datasets.length,
+      chromsCompleted: finishedAt.filter(t => t != null).length,
+      finalPeaks: _psQ,
+      viewportDomain: [...domain],
+    });
+    setFinishedAt(prev => {
+      const next = [...prev];
+      if (!next[currentIdx]) next[currentIdx] = Date.now() - T.sessionStart;
+      return next;
+    });
+    const results = buildResults();
+    onQuit(results);
+  };
+
   const xTicks = useMemo(() => Array.from({ length: 9 }, (_, i) => domain[0] + (i / 8) * (domain[1] - domain[0])), [domain]);
   const yTicks = useMemo(() => Array.from({ length: 6 }, (_, i) => (i / 5) * yMax), [yMax]);
 
@@ -2598,20 +2679,21 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
   const fxInv   = useCallback(px => domain[0] + ((px - fpad.l) / fplotW) * (domain[1] - domain[0]), [domain, fplotW]);
   const fyScale = useCallback(v => fpad.t + fplotH - (v / yMax) * fplotH, [yMax, fplotH]);
 
-  // Build a filled-area SVG path along the real signal for a peak window.
-  // Must be defined after fxScale/fyScale/fpad/fplotH.
+  // Build a filled-area SVG path for a peak window. The area is bounded above
+  // by the real signal curve and below by a straight baseline chord drawn from
+  // the peak's start sample to its end sample (NOT down to y=0). Tracing the
+  // curve and closing the path with `Z` makes the implicit closing segment
+  // exactly that start→end chord, so the shaded region always represents the
+  // peak's area above its local baseline. This fixes the odd shapes that
+  // appeared whenever the baseline dipped below zero (the old version filled
+  // straight down to the y=0 axis line).
+  // Must be defined after fxScale/fyScale.
   const buildPeakAreaPath = useCallback((pk) => {
-    const plotBottom = fpad.t + fplotH;
     const pts = displayData.filter(d => d[0] >= pk.userStart && d[0] <= pk.userEnd);
-    if (pts.length < 2) {
-      const x0 = fxScale(pk.userStart), x1 = fxScale(pk.userEnd);
-      return `M${x0},${plotBottom} L${x0},${fpad.t} L${x1},${fpad.t} L${x1},${plotBottom} Z`;
-    }
+    if (pts.length < 2) return "";
     const top = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${fxScale(p[0]).toFixed(1)},${fyScale(p[1]).toFixed(1)}`).join(' ');
-    const x1 = fxScale(pts[pts.length - 1][0]).toFixed(1);
-    const x0 = fxScale(pts[0][0]).toFixed(1);
-    return `${top} L${x1},${plotBottom} L${x0},${plotBottom} Z`;
-  }, [displayData, fxScale, fyScale, fpad.t, fplotH]);
+    return `${top} Z`;
+  }, [displayData, fxScale, fyScale]);
 
   const fPathD = useMemo(() => {
     const pts = displayData.filter(d => d[0] >= domain[0] - 0.2 && d[0] <= domain[1] + 0.2);
@@ -2621,7 +2703,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
 
   const fCtxH = 48;
   const fCtxXScale = useCallback(v => fpad.l + ((v - xMin) / (xMax - xMin || 1)) * fplotW, [fplotW, xMin, xMax]);
-  const fCtxYScale = useCallback(v => 5 + (fCtxH - 12) - (v / yMax) * (fCtxH - 12), [yMax]);
+  const fCtxYScale = useCallback(v => 5 + (fCtxH - 12) - (v / yMaxGlobal) * (fCtxH - 12), [yMaxGlobal]);
   const fCtxPath = useMemo(() => {
     const step = Math.max(1, Math.floor(displayData.length / 500));
     return displayData.filter((_, i) => i % step === 0)
@@ -2661,23 +2743,34 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
 
   // fGetSvgX converts clientX to SVG viewBox coordinates.
   const fGetSvgX = useCallback(e => {
-    const r = svgRef.current?.getBoundingClientRect();
-    if (!r) return 0;
+    const svg = svgRef.current;
+    if (!svg) return 0;
+    const sp = clientToSvgPoint(svg, e.clientX, e.clientY);
+    if (sp) return sp.x;
+    const r = svg.getBoundingClientRect();
     return (e.clientX - r.left) * (FW / r.width);
   }, []);
 
   // Override original handlers to use full-width scales
   const fOnWheel = useCallback(e => {
     e.preventDefault();
-    const r = svgRef.current?.getBoundingClientRect(); if (!r) return;
-    const scale = FW / r.width;
-    const anchor = fxInv((e.clientX - r.left) * scale);
+    const svg = svgRef.current; if (!svg) return;
+    // Map the cursor to true viewBox coordinates (correct even when the chart
+    // is letterboxed), so the zoom anchors exactly under the mouse.
+    const sp = clientToSvgPoint(svg, e.clientX, e.clientY);
+    let svgX;
+    if (sp) { svgX = sp.x; }
+    else { const r = svg.getBoundingClientRect(); svgX = (e.clientX - r.left) * (FW / r.width); }
+    const anchor = fxInv(svgX);
     const factor = e.deltaY > 0 ? 0.82 : 1.22;
     const w = domain[1] - domain[0], nw = Math.max(0.1, Math.min(xMax - xMin, w / factor));
     const a0 = (anchor - domain[0]) / w;
     let a = anchor - a0 * nw, b = a + nw;
     if (a < xMin) { a = xMin; b = a + nw; } if (b > xMax) { b = xMax; a = b - nw; }
     setDomain([a, b]);
+    // Re-fit the Y axis to the newly zoomed window (batched with setDomain in
+    // the same event, so the chart re-renders once with both updated).
+    setYMax(computeYFit(a, b));
     // Log zoom event to interaction log
     const _zoomMs = Date.now() - T.sessionStart;
     pushInteraction(T, "zoom", currentIdxRef.current, null, null, {
@@ -2692,7 +2785,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
     T.zoomLog.push({ time: _zoomMs, chromIdx: currentIdxRef.current,
       domainStart: a, domainEnd: b, width: nw,
       direction: e.deltaY > 0 ? "in" : "out", anchorChartX: anchor });
-  }, [domain, fxInv, xMax, xMin]);
+  }, [domain, fxInv, xMax, xMin, computeYFit]);
 
   const fOnSvgPointerDown = useCallback(e => {
     // Never overwrite an active handle drag — stopPropagation should prevent
@@ -2705,9 +2798,10 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
       if (track && (track.includes('confidence') || track.includes('icon') || track.includes('handle') || track.includes('peak_icon'))) return;
       el = el.parentElement;
     }
-    const r = svgRef.current?.getBoundingClientRect();
-    const scale = r ? FW / r.width : 1;
-    const svgPx = r ? (e.clientX - r.left) * scale : 0;
+    const sp = clientToSvgPoint(svgRef.current, e.clientX, e.clientY);
+    let svgPx;
+    if (sp) { svgPx = sp.x; }
+    else { const r = svgRef.current?.getBoundingClientRect(); svgPx = r ? (e.clientX - r.left) * (FW / r.width) : 0; }
     const chartX = fxInv(svgPx);
 
     // Select the peak whose apex is closest to the click position.
@@ -2720,11 +2814,15 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
 
   const fOnSvgPointerMove = useCallback(e => {
     const d = dragStateRef.current; if (!d) return;
-    const r = svgRef.current?.getBoundingClientRect();
-    const viewScale = r ? FW / r.width : 1;
+    const svg = svgRef.current;
+    const sp = clientToSvgPoint(svg, e.clientX, e.clientY);
+    // viewBox units per CSS pixel (horizontal) — correct even when the SVG is
+    // letterboxed. Falls back to the naive ratio if the CTM is unavailable.
+    let unitsPerPxX = sp ? sp.unitsPerPxX : null;
+    if (unitsPerPxX == null) { const r = svg?.getBoundingClientRect(); unitsPerPxX = r ? FW / r.width : 1; }
 
     if (d.type === 'pan') {
-      const dx = (e.clientX - d.startX) * viewScale;
+      const dx = (e.clientX - d.startX) * unitsPerPxX;
       const pw = fplotWRef.current;
       const dD = -(dx / pw) * (d.startDomain[1] - d.startDomain[0]);
       let a = d.startDomain[0] + dD, b = d.startDomain[1] + dD; const w = b - a;
@@ -2737,7 +2835,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
       // Compute fxInv inline from live refs — no stale closure possible
       const pad = fpadRef.current, pw = fplotWRef.current;
       const dom = domainRef.current;
-      const svgX = r ? (e.clientX - r.left) * viewScale : 0;
+      const svgX = sp ? sp.x : 0;
       const clampedX = Math.max(pad.l, Math.min(pad.l + pw, svgX));
       const rawVal = dom[0] + ((clampedX - pad.l) / pw) * (dom[1] - dom[0]);
       // Subtract the offset so the handle stays under the original click spot
@@ -2802,10 +2900,11 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
     // Compute cursor offset relative to the handle's current data value so the
     // handle doesn't snap to the cursor on the first move — it stays under the
     // spot where the user clicked and moves relative to that.
-    const r = svgRef.current?.getBoundingClientRect();
-    const viewScale = r ? FW / r.width : 1;
+    const sp = clientToSvgPoint(svgRef.current, e.clientX, e.clientY);
     const pad = fpadRef.current, pw = fplotWRef.current, dom = domainRef.current;
-    const svgX = r ? (e.clientX - r.left) * viewScale : 0;
+    let svgX;
+    if (sp) { svgX = sp.x; }
+    else { const r = svgRef.current?.getBoundingClientRect(); svgX = r ? (e.clientX - r.left) * (FW / r.width) : 0; }
     const cursorVal = dom[0] + ((svgX - pad.l) / pw) * (dom[1] - dom[0]);
     const cursorOffset = startVal != null ? cursorVal - startVal : 0;
     dragStateRef.current = { type: 'handle', peakId, handle, startVal, boundariesAtStart, cursorOffset };
@@ -2832,6 +2931,37 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
     <div style={{ fontFamily: "'IBM Plex Sans',system-ui,sans-serif", background: "#f0f2f5", minHeight: "100vh" }}>
       {showTutorial && <TutorialScreen vizMode={vizMode} onDismiss={() => setShowTutorial(false)} />}
       {showTutorial ? null : (<>
+
+      {/* ── Quit-study confirmation modal ── */}
+      {showQuitConfirm && (
+        <div onClick={() => setShowQuitConfirm(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: "#fff", borderRadius: 14, maxWidth: 460, width: "100%", padding: "26px 26px 22px", boxShadow: "0 20px 60px rgba(0,0,0,.3)" }}>
+            <div style={{ fontSize: 34, textAlign: "center", marginBottom: 8 }}>&#9888;&#65039;</div>
+            <h2 style={{ fontSize: 19, fontWeight: 800, color: "#b91c1c", textAlign: "center", margin: "0 0 14px" }}>
+              Quit the study and skip to the end?
+            </h2>
+            <p style={{ fontSize: 13.5, color: "#334155", lineHeight: 1.6, margin: "0 0 10px" }}>
+              This will <strong>skip the rest of the study entirely</strong> &mdash; the remaining chromatograms <strong>and all of the surveys</strong> &mdash; and take you straight to the final completion code. Your data so far will still be saved.
+            </p>
+            <p style={{ fontSize: 13.5, color: "#334155", lineHeight: 1.6, margin: "0 0 18px" }}>
+              Only use this if you need to <strong>back out of the study</strong>. If you are simply done annotating and want to continue normally, go back and use the
+              {" "}<em>&ldquo;I&rsquo;m done annotating &mdash; take me to the surveys&rdquo;</em> button instead.
+            </p>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setShowQuitConfirm(false)} data-track="quit_study_cancel"
+                style={{ flex: 1, padding: "11px", borderRadius: 9, border: "1.5px solid #cbd5e1", background: "#f8fafc", color: "#334155", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>
+                Go back
+              </button>
+              <button onClick={() => { setShowQuitConfirm(false); doQuitStudy(); }} data-track="quit_study_confirm"
+                style={{ flex: 1, padding: "11px", borderRadius: 9, border: "none", background: "#dc2626", color: "#fff", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>
+                Quit &amp; skip to end
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Header ── */}
       <div style={{ background: "linear-gradient(135deg,#1a1a2e,#16213e)", padding: "10px 20px", color: "#fff", display: "flex", alignItems: "center", gap: 12 }}>
@@ -2868,6 +2998,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
           <button onClick={() => {
             pushInteraction(T, "reset_zoom", currentIdxRef.current, null, null, { domainBefore: [domain[0], domain[1]] });
             setDomain([xMin, xMax]);
+            setYMax(computeYFit(xMin, xMax));
           }} data-track="reset_zoom"
             style={{ padding: "5px 12px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", border: "1px solid #d1d5db", background: "#f9fafb", color: "#374151" }}>Reset Zoom</button>
           <span style={{ fontSize: 11, color: "#94a3b8", whiteSpace: "nowrap" }}>{activePeaks.length} peak{activePeaks.length !== 1 ? "s" : ""} annotated</span>
@@ -2939,6 +3070,14 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
             onPointerDown={fOnSvgPointerDown} onPointerMove={fOnSvgPointerMove}
             onPointerUp={fOnSvgPointerUp} onPointerLeave={fOnSvgPointerUp}>
 
+            {/* Clip region for the signal + fills so the auto-fitting Y axis
+                can't paint them over the axes/labels when zoomed. */}
+            <defs>
+              <clipPath id="fPlotClip">
+                <rect x={fpad.l} y={fpad.t} width={fplotW} height={fplotH} />
+              </clipPath>
+            </defs>
+
             {/* Grid */}
             {yTicksF.map((v, i) => <line key={`yg${i}`} x1={fpad.l} x2={fpad.l + fplotW} y1={fyScale(v)} y2={fyScale(v)} stroke="#f1f5f9" />)}
             {xTicksF.map((v, i) => <line key={`xg${i}`} x1={fxScale(v)} x2={fxScale(v)} y1={fpad.t} y2={fpad.t + fplotH} stroke="#f1f5f9" />)}
@@ -2967,6 +3106,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
                   onPointerEnter={() => beginHover(pk.id)} onPointerLeave={() => endHover(false)}
                   onClick={e => { e.stopPropagation(); endHover(true); setSelectedPeakId(pk.id === selectedPeakId ? null : pk.id); logEdit("select_peak", pk.id, { via: "fill", confidence: pk.confidence, start: pk.userStart, apex: pk.userApex, end: pk.userEnd }); }}>
                   <path d={areaPath}
+                    clipPath="url(#fPlotClip)"
                     fill={`hsla(${hue},75%,45%,${baseOpacity})`}
                     stroke={`hsla(${hue},75%,35%,${strokeOpacity})`}
                     strokeWidth={sel ? 1.5 : 1}
@@ -2994,7 +3134,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
             })}
 
             {/* Chromatogram line */}
-            <path d={fPathD} fill="none" stroke="#1e293b" strokeWidth={1.5} strokeLinejoin="round" />
+            <path d={fPathD} clipPath="url(#fPlotClip)" fill="none" stroke="#1e293b" strokeWidth={1.5} strokeLinejoin="round" />
 
             {/* Peaks */}
             {activePeaks.map(pk => {
@@ -3301,6 +3441,19 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
               </div>
               </>
             )}
+
+            {/* Quit study — emergency early exit. Deliberately styled and worded
+                differently from the grey "done annotating" button above so it
+                isn't mistaken for the normal way to finish. */}
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
+              <button onClick={() => setShowQuitConfirm(true)} data-track="quit_study_open"
+                style={{ width: "100%", padding: "9px 16px", borderRadius: 9, border: "1.5px solid #fca5a5", fontSize: 12.5, fontWeight: 700, cursor: "pointer", background: "#fff", color: "#b91c1c" }}>
+                &#9888; Quit study &amp; skip to the end
+              </button>
+              <div style={{ marginTop: 6, fontSize: 10.5, color: "#94a3b8", textAlign: "center", lineHeight: 1.4 }}>
+                Emergency exit only. Saves your data and jumps straight to the final completion code, skipping the rest of the study <strong>and all surveys</strong>. This is <strong>not</strong> the same as finishing normally &mdash; only use it if you need to back out.
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -3889,7 +4042,9 @@ function StudyFlow({ session }) {
     const annResults = partialAnnotationResults || annotationResults;
 
     if (!annResults) {
-      // Quit before any annotation data — just go to completion with no export
+      // Quit before any annotation data — go straight to completion. Mark the
+      // upload as done so the completion code is shown rather than a spinner.
+      setUploadStatus("success");
       setPhase("complete");
       return;
     }
@@ -3928,17 +4083,23 @@ function StudyFlow({ session }) {
       partialExport.surveys.feedback = { responses: feedbackResults };
     }
 
-    // Upload partial results to Firebase silently — no local download fallback
+    // Upload partial results to Firebase, tracking status so the completion
+    // screen reveals the code on success (and offers Retry on failure). Without
+    // this the screen would stay stuck on the "Saving…" spinner forever.
+    finalResultsRef.current = partialExport;
+    setUploadStatus("uploading");
+    setPhase("complete");
     const { _tracker: _qt, ...partialUploadData } = partialExport;
     addDoc(collection(db, "study_results"), {
       submittedAt: new Date(),
       userName: session.userName,
       data: partialUploadData,
-    }).catch(err => {
-      console.error("Firebase upload failed (quit early):", err);
-    });
-
-    setPhase("complete");
+    })
+      .then(() => setUploadStatus("success"))
+      .catch(err => {
+        console.error("Firebase upload failed (quit early):", err);
+        setUploadStatus("error");
+      });
   }, [phase, annotationResults, nasaTlxResults, feedbackResults, session.userName]);
 
   const handleDemographicsDone = async (demographicsResponses) => {
