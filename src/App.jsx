@@ -136,6 +136,9 @@ const confHue = c => {
 const confColor = c => `hsl(${confHue(c)}, 75%, 38%)`;
 const confBg = c => `hsla(${confHue(c)}, 75%, 38%, 0.12)`;
 const fmt = n => n == null ? "—" : Math.abs(n) >= 100 ? n.toFixed(1) : Math.abs(n) >= 10 ? n.toFixed(2) : n.toFixed(3);
+// Axis-tick formatter whose precision adapts to the visible range, so a zoomed
+// y-axis (small values) doesn't collapse every tick to the same rounded label.
+const fmtAxis = (v, range) => range >= 50 ? v.toFixed(0) : range >= 5 ? v.toFixed(1) : range >= 0.5 ? v.toFixed(2) : v.toFixed(3);
 
 // Parse "X% above/below threshold" from feature explanation text
 // Returns { prominence, width, height, snr?, area? } where each is a signed number
@@ -553,6 +556,82 @@ function clientToSvgPoint(svg, clientX, clientY) {
   };
 }
 
+// Compute the [min, max] the Y axis should span so the signal inside the
+// visible x-window [lo, hi] fills the plot. The axis floor is 0 unless the
+// signal dips below zero in view, in which case it extends below 0 so the
+// full trace (including the dip) stays visible. `globalMax`/`globalMin` are
+// the whole-trace extremes, used as a fallback (empty window) and to size a
+// minimum span so a flat window doesn't collapse the axis.
+function computeYFitRange(data, lo, hi, globalMax, globalMin) {
+  let visMax = -Infinity, visMin = Infinity;
+  for (let i = 0; i < data.length; i++) {
+    const x = data[i][0];
+    if (x < lo || x > hi) continue;
+    const y = data[i][1];
+    if (y > visMax) visMax = y;
+    if (y < visMin) visMin = y;
+  }
+  if (visMax === -Infinity) { visMax = globalMax; visMin = globalMin; }
+  const lowAnchor = Math.min(0, visMin);
+  const span = Math.max(visMax - lowAnchor, (globalMax - Math.min(0, globalMin)) * 0.04, 1e-6);
+  return {
+    max: visMax + span * 0.10,                       // headroom above
+    min: visMin < 0 ? visMin - span * 0.06 : 0,      // show dips, else pin to 0
+  };
+}
+
+// Build the shaded peak-area path for the window [startX, endX].
+// The "baseline" is the straight chord from the signal at startX to the signal
+// at endX. We shade ONLY where the signal rises above that chord (the true
+// peak area), broken into one filled run per excursion above the baseline.
+// This avoids the diagonal triangles the old "trace + close" version produced
+// when the boundaries were placed wide (which shaded flat regions sitting below
+// a steep chord), and it works correctly when the signal goes below zero.
+function buildClippedAreaPath(data, startX, endX, xScale, yScale) {
+  const pts = data.filter(d => d[0] >= startX && d[0] <= endX);
+  if (pts.length < 2) return "";
+  const x0 = pts[0][0], y0 = pts[0][1];
+  const x1 = pts[pts.length - 1][0], y1 = pts[pts.length - 1][1];
+  const span = (x1 - x0) || 1e-9;
+  const chordAt = x => y0 + (y1 - y0) * ((x - x0) / span);
+
+  // Collect maximal runs where signal >= chord. Interpolate the exact crossing
+  // so each run starts/ends right on the baseline.
+  const segs = [];
+  let cur = null, prev = null;
+  for (let i = 0; i < pts.length; i++) {
+    const x = pts[i][0], sig = pts[i][1];
+    const diff = sig - chordAt(x);
+    if (prev) {
+      if (prev.diff < 0 && diff >= 0) {
+        const t = prev.diff / (prev.diff - diff);
+        const cx = prev.x + (x - prev.x) * t;
+        cur = [{ x: cx, top: chordAt(cx) }];
+      } else if (prev.diff >= 0 && diff < 0) {
+        const t = prev.diff / (prev.diff - diff);
+        const cx = prev.x + (x - prev.x) * t;
+        if (cur) { cur.push({ x: cx, top: chordAt(cx) }); if (cur.length >= 2) segs.push(cur); }
+        cur = null;
+      }
+    }
+    if (diff >= 0) { if (!cur) cur = []; cur.push({ x, top: sig }); }
+    prev = { x, sig, diff };
+  }
+  if (cur && cur.length >= 2) segs.push(cur);
+
+  let d = "";
+  for (const seg of segs) {
+    if (seg.length < 2) continue;
+    let s = `M${xScale(seg[0].x).toFixed(1)},${yScale(seg[0].top).toFixed(1)}`;
+    for (let i = 1; i < seg.length; i++) s += ` L${xScale(seg[i].x).toFixed(1)},${yScale(seg[i].top).toFixed(1)}`;
+    // Bottom edge = the chord, traced back from end to start.
+    for (let i = seg.length - 1; i >= 0; i--) s += ` L${xScale(seg[i].x).toFixed(1)},${yScale(chordAt(seg[i].x)).toFixed(1)}`;
+    s += " Z";
+    d += (d ? " " : "") + s;
+  }
+  return d;
+}
+
 // ══════════════════════════════════════════════════════════════════
 //  URL-based data loading (GitHub Pages / static hosting)
 // ══════════════════════════════════════════════════════════════════
@@ -917,11 +996,27 @@ function TutorialScreen({ vizMode, onDismiss }) {
   const tpad = { l: 64, r: 24, t: 24, b: 56 };
   const tPlotW = TW - tpad.l - tpad.r, tPlotH = TH - tpad.t - tpad.b;
   const tHandleY = tpad.t + tPlotH + 22;
-  const tYMax = useMemo(() => Math.max(...tutData.map(d => d[1]), 1) * 1.12, [tutData]);
+  // Whole-trace Y extremes for the tutorial signal (used for the overview strip
+  // and as fallback/floor for the auto-fitting axis).
+  const tYStats = useMemo(() => {
+    let mx = -Infinity, mn = Infinity;
+    for (const d of tutData) { if (d[1] > mx) mx = d[1]; if (d[1] < mn) mn = d[1]; }
+    if (mx === -Infinity) { mx = 1; mn = 0; }
+    return { max: mx, min: mn };
+  }, [tutData]);
+  const tYMaxGlobal = tYStats.max * 1.12;
+  const tYMinGlobal = tYStats.min < 0 ? tYStats.min * 1.12 : 0;
+  const computeTYFit = useCallback((a, b) =>
+    computeYFitRange(tutData, Math.min(a, b), Math.max(a, b), tYStats.max, tYStats.min),
+    [tutData, tYStats]);
+  // Y axis re-fits on zoom (wheel/pinch and Reset Zoom) only — not on pan.
+  const [tYRange, setTYRange] = useState(() => ({ min: 0, max: tYStats.max * 1.12 }));
+  const tYMin = tYRange.min, tYMax = tYRange.max;
+  useEffect(() => { setTYRange(computeTYFit(0, 12)); }, [computeTYFit]);
 
   const txScale = useCallback(v => tpad.l + ((v - tutDomain[0]) / (tutDomain[1] - tutDomain[0] || 1)) * tPlotW, [tutDomain, tPlotW]);
   const txInv = useCallback(px => tutDomain[0] + ((px - tpad.l) / tPlotW) * (tutDomain[1] - tutDomain[0]), [tutDomain, tPlotW]);
-  const tyScale = useCallback(v => tpad.t + tPlotH - (v / tYMax) * tPlotH, [tYMax, tPlotH]);
+  const tyScale = useCallback(v => tpad.t + tPlotH - ((v - tYMin) / ((tYMax - tYMin) || 1)) * tPlotH, [tYMin, tYMax, tPlotH]);
 
   const tutPathD = useMemo(() => {
     const pts = tutData.filter(d => d[0] >= tutDomain[0] - 0.3 && d[0] <= tutDomain[1] + 0.3);
@@ -951,17 +1046,21 @@ function TutorialScreen({ vizMode, onDismiss }) {
 
   const onTutWheel = useCallback(e => {
     e.preventDefault();
-    const r = tutSvgRef.current?.getBoundingClientRect(); if (!r) return;
-    const scale = TW / r.width;
-    const anchor = txInv((e.clientX - r.left) * scale);
+    const svg = tutSvgRef.current; if (!svg) return;
+    const sp = clientToSvgPoint(svg, e.clientX, e.clientY);
+    let svgX;
+    if (sp) { svgX = sp.x; }
+    else { const r = svg.getBoundingClientRect(); svgX = (e.clientX - r.left) * (TW / r.width); }
+    const anchor = txInv(svgX);
     const factor = e.deltaY > 0 ? 0.82 : 1.22;
     const w = tutDomain[1] - tutDomain[0], nw = Math.max(0.5, Math.min(12, w / factor));
     const a0 = (anchor - tutDomain[0]) / w;
     let a = anchor - a0 * nw, b = a + nw;
     if (a < 0) { a = 0; b = a + nw; } if (b > 12) { b = 12; a = b - nw; }
     setTutDomain([a, b]);
+    setTYRange(computeTYFit(a, b));
     setHasZoomed(true);
-  }, [tutDomain, txInv]);
+  }, [tutDomain, txInv, computeTYFit]);
 
   // Non-passive wheel listener for tutorial SVG — use stable ref so zoom
   // works immediately without requiring a click first.
@@ -1278,7 +1377,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
   // Mini-map context strip
   const tCtxH = 48;
   const tCtxXScale = useCallback(v => tpad.l + ((v - 0) / (12 - 0 || 1)) * tPlotW, [tPlotW]);
-  const tCtxYScale = useCallback(v => 5 + (tCtxH - 12) - (v / tYMax) * (tCtxH - 12), [tYMax]);
+  const tCtxYScale = useCallback(v => 5 + (tCtxH - 12) - ((v - tYMinGlobal) / ((tYMaxGlobal - tYMinGlobal) || 1)) * (tCtxH - 12), [tYMaxGlobal, tYMinGlobal]);
   const tCtxPath = useMemo(() => {
     const step2 = Math.max(1, Math.floor(tutData.length / 500));
     return tutData.filter((_, i) => i % step2 === 0)
@@ -1287,20 +1386,12 @@ function TutorialScreen({ vizMode, onDismiss }) {
 
   // x/y ticks
   const txTicks = useMemo(() => Array.from({ length: 9 }, (_, i) => tutDomain[0] + (i / 8) * (tutDomain[1] - tutDomain[0])), [tutDomain]);
-  const tyTicks = useMemo(() => Array.from({ length: 6 }, (_, i) => (i / 5) * tYMax), [tYMax]);
+  const tyTicks = useMemo(() => Array.from({ length: 6 }, (_, i) => tYMin + (i / 5) * (tYMax - tYMin)), [tYMin, tYMax]);
 
-  // Build filled area path for a peak (same as main screen).
-  // Fill the area between the signal curve and a straight baseline chord drawn
-  // from the peak's start sample to its end sample — NOT down to y=0. Tracing
-  // the curve and closing with `Z` makes the closing segment exactly that
-  // chord, so the shaded region represents the peak's area above its local
-  // baseline and never produces the strange shapes that appeared when the
-  // baseline dipped below zero.
+  // Shaded peak area: only the region where the signal rises above the
+  // start->end baseline chord (see buildClippedAreaPath).
   const buildTutPeakAreaPath = useCallback((pk) => {
-    const pts = tutData.filter(d => d[0] >= pk.userStart && d[0] <= pk.userEnd);
-    if (pts.length < 2) return "";
-    const top = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${txScale(p[0]).toFixed(1)},${tyScale(p[1]).toFixed(1)}`).join(' ');
-    return `${top} Z`;
+    return buildClippedAreaPath(tutData, pk.userStart, pk.userEnd, txScale, tyScale);
   }, [tutData, txScale, tyScale]);
 
   // Tutorial-specific task steps for the task banner
@@ -1366,7 +1457,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
         ))}
         <div style={{ flex: 1 }} />
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <button onClick={() => setTutDomain([0, 12])}
+          <button onClick={() => { setTutDomain([0, 12]); setTYRange(computeTYFit(0, 12)); }}
             style={{ padding: "5px 12px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", border: "1px solid #d1d5db", background: "#f9fafb", color: "#374151" }}>Reset Zoom</button>
           <span style={{ fontSize: 11, color: "#94a3b8", whiteSpace: "nowrap" }}>{activeTutPeaks.length} peak{activeTutPeaks.length !== 1 ? "s" : ""}</span>
         </div>
@@ -1467,12 +1558,21 @@ function TutorialScreen({ vizMode, onDismiss }) {
                 onPointerDown={onTutPointerDown} onPointerMove={onTutPointerMove}
                 onPointerUp={onTutPointerUp} onPointerLeave={onTutPointerUp}>
 
+                <defs>
+                  <clipPath id="tPlotClip">
+                    <rect x={tpad.l} y={tpad.t} width={tPlotW} height={tPlotH} />
+                  </clipPath>
+                </defs>
+
                 {/* Grid */}
                 {tyTicks.map((v, i) => <line key={`yg${i}`} x1={tpad.l} x2={tpad.l + tPlotW} y1={tyScale(v)} y2={tyScale(v)} stroke="#f1f5f9" />)}
                 {txTicks.map((v, i) => <line key={`xg${i}`} x1={txScale(v)} x2={txScale(v)} y1={tpad.t} y2={tpad.t + tPlotH} stroke="#f1f5f9" />)}
                 <line x1={tpad.l} x2={tpad.l} y1={tpad.t} y2={tpad.t + tPlotH} stroke="#cbd5e1" />
                 <line x1={tpad.l} x2={tpad.l + tPlotW} y1={tpad.t + tPlotH} y2={tpad.t + tPlotH} stroke="#cbd5e1" />
-                {tyTicks.map((v, i) => <text key={`yt${i}`} x={tpad.l - 6} y={tyScale(v) + 4} textAnchor="end" fontSize={11} fill="#94a3b8">{v.toFixed(0)}</text>)}
+                {tYMin < 0 && tYMax > 0 && (
+                  <line x1={tpad.l} x2={tpad.l + tPlotW} y1={tyScale(0)} y2={tyScale(0)} stroke="#cbd5e1" strokeDasharray="4 3" />
+                )}
+                {tyTicks.map((v, i) => <text key={`yt${i}`} x={tpad.l - 6} y={tyScale(v) + 4} textAnchor="end" fontSize={11} fill="#94a3b8">{fmtAxis(v, tYMax - tYMin)}</text>)}
                 {txTicks.map((v, i) => <text key={`xt${i}`} x={txScale(v)} y={tpad.t + tPlotH + 14} textAnchor="middle" fontSize={11} fill="#94a3b8">{fmt(v)}</text>)}
                 <text x={tpad.l + tPlotW / 2} y={TH - 2} textAnchor="middle" fontSize={12} fontWeight={600} fill="#64748b">Time</text>
                 <text x={13} y={tpad.t + tPlotH / 2} textAnchor="middle" fontSize={12} fontWeight={600} fill="#64748b" transform={`rotate(-90,13,${tpad.t + tPlotH / 2})`}>Intensity</text>
@@ -1492,7 +1592,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
                     <g key={`fill${pk.id}`} style={{ cursor: "pointer", pointerEvents: "auto" }}
                       onPointerEnter={() => setTutHoveredId(pk.id)} onPointerLeave={() => setTutHoveredId(null)}
                       onClick={e => { e.stopPropagation(); setTutSelectedId(pk.id === tutSelectedId ? null : pk.id); setHasSelectedPeak(true); }}>
-                      <path d={areaPath} fill={`hsla(${hue},75%,45%,${baseOpacity})`}
+                      <path d={areaPath} clipPath="url(#tPlotClip)" fill={`hsla(${hue},75%,45%,${baseOpacity})`}
                         stroke={`hsla(${hue},75%,35%,${strokeOpacity})`} strokeWidth={sel ? 1.5 : 1}
                         style={{ pointerEvents: "visible" }} />
                     </g>
@@ -1517,7 +1617,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
                 })}
 
                 {/* Signal line */}
-                <path d={tutPathD} fill="none" stroke="#1e293b" strokeWidth={1.5} strokeLinejoin="round" />
+                <path d={tutPathD} clipPath="url(#tPlotClip)" fill="none" stroke="#1e293b" strokeWidth={1.5} strokeLinejoin="round" />
 
                 {/* Peak markers */}
                 {activeTutPeaks.map(pk => {
@@ -1865,20 +1965,22 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
   const fplotWRef = useRef(null);
   const domainRef = useRef(null);
   const yMaxRef = useRef(null);
+  const yMinRef = useRef(null);
 
   // Stable: reads live values from refs, so empty dependency array is correct.
   const screenToChart = useCallback((clientX, clientY) => {
     const r = svgRef.current?.getBoundingClientRect();
-    const pad = fpadRef.current, pw = fplotWRef.current, dom = domainRef.current, ymax = yMaxRef.current;
+    const pad = fpadRef.current, pw = fplotWRef.current, dom = domainRef.current, ymax = yMaxRef.current, ymin = yMinRef.current;
     if (!r || !pad || pw == null || !dom || ymax == null) return null;
     const sp = clientToSvgPoint(svgRef.current, clientX, clientY);
     const svgX = sp ? sp.x : (clientX - r.left) * (FW / r.width);
     const svgY = sp ? sp.y : (clientY - r.top)  * (FH / r.height);
     const plotH = FH - pad.t - 56;
     if (svgX < pad.l || svgX > pad.l + pw || svgY < pad.t || svgY > pad.t + plotH) return null;
+    const lo = ymin ?? 0;
     return {
       chartX: dom[0] + ((svgX - pad.l) / pw) * (dom[1] - dom[0]),
-      chartY: ((pad.t + plotH - svgY) / plotH) * ymax,
+      chartY: lo + ((pad.t + plotH - svgY) / plotH) * (ymax - lo),
     };
   }, []);
   useEffect(() => { currentIdxRef.current = currentIdx; }, [currentIdx]);
@@ -2094,37 +2196,35 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
 
   const xMin = displayData.length > 0 ? displayData[0][0] : 0;
   const xMax = displayData.length > 0 ? displayData[displayData.length - 1][0] : 1;
-  // Global maximum across the entire signal. Used for the overview/mini-map
-  // strip (which should stay stable while you zoom) and as a floor for the
-  // auto-fitting main-plot yMax below.
-  const yMaxGlobal = useMemo(() => Math.max(...displayData.map(d => d[1]), 1) * 1.12, [displayData]);
+  // Whole-trace Y extremes. Used for the overview/mini-map strip (stable while
+  // you zoom) and as the fallback/floor for the auto-fitting main-plot axis.
+  const yStats = useMemo(() => {
+    let mx = -Infinity, mn = Infinity;
+    for (const d of displayData) { if (d[1] > mx) mx = d[1]; if (d[1] < mn) mn = d[1]; }
+    if (mx === -Infinity) { mx = 1; mn = 0; }
+    return { max: mx, min: mn };
+  }, [displayData]);
+  const yMaxGlobal = yStats.max * 1.12;
+  const yMinGlobal = yStats.min < 0 ? yStats.min * 1.12 : 0;
 
   const [domain, setDomain] = useState([xMin, xMax]);
   useEffect(() => { setDomain([xMin, xMax]); }, [xMin, xMax]);
 
-  // Auto-fit helper: the Y max that makes the signal inside [a, b] fill the
-  // plot. Lets small peaks be zoomed up to show their prominence — previously
-  // yMax was pinned to the tallest peak in the whole chromatogram. Floored to a
-  // small fraction of the global max so a flat window doesn't collapse the axis.
-  const computeYFit = useCallback((a, b) => {
-    const lo = Math.min(a, b), hi = Math.max(a, b);
-    let visMax = 0;
-    for (let i = 0; i < displayData.length; i++) {
-      const d = displayData[i];
-      if (d[0] >= lo && d[0] <= hi && d[1] > visMax) visMax = d[1];
-    }
-    const globalRaw = yMaxGlobal / 1.12;            // undo the headroom factor
-    if (!(visMax > 0)) visMax = globalRaw;          // nothing visible → fall back
-    return Math.max(visMax, globalRaw * 0.04) * 1.12;
-  }, [displayData, yMaxGlobal]);
+  // Auto-fit helper: the [min, max] that makes the signal inside [a, b] fill the
+  // plot. Lets small peaks be zoomed up to show their prominence, and extends
+  // below 0 when the trace dips there so the full chromatogram stays visible.
+  const computeYFit = useCallback((a, b) =>
+    computeYFitRange(displayData, Math.min(a, b), Math.max(a, b), yStats.max, yStats.min),
+    [displayData, yStats]);
 
   // Y axis re-fits only on ZOOM (wheel/pinch and Reset Zoom), not on pan — so
   // the vertical scale stays put while you drag sideways and only changes when
   // you actually change zoom level. Updated imperatively in the zoom handlers
   // (batched with setDomain so there's no stale-scale flash) and reset to the
   // full view whenever the chromatogram changes.
-  const [yMax, setYMax] = useState(() => yMaxGlobal);
-  useEffect(() => { setYMax(computeYFit(xMin, xMax)); }, [xMin, xMax, computeYFit]);
+  const [yRange, setYRange] = useState(() => ({ min: 0, max: yStats.max * 1.12 }));
+  const yMin = yRange.min, yMax = yRange.max;
+  useEffect(() => { setYRange(computeYFit(xMin, xMax)); }, [xMin, xMax, computeYFit]);
   // gesture doesn't produce dozens of entries — we care about "where did
   // the user end up looking?", not every intermediate frame.
   useEffect(() => {
@@ -2677,22 +2777,14 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
   // Recompute scale functions for the full-width chart
   const fxScale = useCallback(v => fpad.l + ((v - domain[0]) / (domain[1] - domain[0] || 1)) * fplotW, [domain, fplotW]);
   const fxInv   = useCallback(px => domain[0] + ((px - fpad.l) / fplotW) * (domain[1] - domain[0]), [domain, fplotW]);
-  const fyScale = useCallback(v => fpad.t + fplotH - (v / yMax) * fplotH, [yMax, fplotH]);
+  const fyScale = useCallback(v => fpad.t + fplotH - ((v - yMin) / ((yMax - yMin) || 1)) * fplotH, [yMin, yMax, fplotH]);
 
-  // Build a filled-area SVG path for a peak window. The area is bounded above
-  // by the real signal curve and below by a straight baseline chord drawn from
-  // the peak's start sample to its end sample (NOT down to y=0). Tracing the
-  // curve and closing the path with `Z` makes the implicit closing segment
-  // exactly that start→end chord, so the shaded region always represents the
-  // peak's area above its local baseline. This fixes the odd shapes that
-  // appeared whenever the baseline dipped below zero (the old version filled
-  // straight down to the y=0 axis line).
-  // Must be defined after fxScale/fyScale.
+  // Shaded peak area: only the region where the signal rises above the
+  // start->end baseline chord (see buildClippedAreaPath). No fill outside the
+  // curve, no diagonal triangles when boundaries are placed wide, and it works
+  // when the trace dips below zero.
   const buildPeakAreaPath = useCallback((pk) => {
-    const pts = displayData.filter(d => d[0] >= pk.userStart && d[0] <= pk.userEnd);
-    if (pts.length < 2) return "";
-    const top = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${fxScale(p[0]).toFixed(1)},${fyScale(p[1]).toFixed(1)}`).join(' ');
-    return `${top} Z`;
+    return buildClippedAreaPath(displayData, pk.userStart, pk.userEnd, fxScale, fyScale);
   }, [displayData, fxScale, fyScale]);
 
   const fPathD = useMemo(() => {
@@ -2703,7 +2795,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
 
   const fCtxH = 48;
   const fCtxXScale = useCallback(v => fpad.l + ((v - xMin) / (xMax - xMin || 1)) * fplotW, [fplotW, xMin, xMax]);
-  const fCtxYScale = useCallback(v => 5 + (fCtxH - 12) - (v / yMaxGlobal) * (fCtxH - 12), [yMaxGlobal]);
+  const fCtxYScale = useCallback(v => 5 + (fCtxH - 12) - ((v - yMinGlobal) / ((yMaxGlobal - yMinGlobal) || 1)) * (fCtxH - 12), [yMaxGlobal, yMinGlobal]);
   const fCtxPath = useMemo(() => {
     const step = Math.max(1, Math.floor(displayData.length / 500));
     return displayData.filter((_, i) => i % step === 0)
@@ -2725,6 +2817,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
   useEffect(() => { fpadRef.current = fpad; }, [fpad]);
   useEffect(() => { fplotWRef.current = fplotW; }, [fplotW]);
   useEffect(() => { yMaxRef.current = yMax; }, [yMax]);
+  useEffect(() => { yMinRef.current = yMin; }, [yMin]);
 
   // svgCallbackRef attaches the wheel listener the moment the SVG element
   // enters the DOM — fixes the race condition where useEffect([]) ran before
@@ -2770,7 +2863,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
     setDomain([a, b]);
     // Re-fit the Y axis to the newly zoomed window (batched with setDomain in
     // the same event, so the chart re-renders once with both updated).
-    setYMax(computeYFit(a, b));
+    setYRange(computeYFit(a, b));
     // Log zoom event to interaction log
     const _zoomMs = Date.now() - T.sessionStart;
     pushInteraction(T, "zoom", currentIdxRef.current, null, null, {
@@ -2925,7 +3018,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
   useEffect(() => { fOnWheelRef.current = fOnWheel; }, [fOnWheel]);
 
   const xTicksF = useMemo(() => Array.from({ length: 9 }, (_, i) => domain[0] + (i / 8) * (domain[1] - domain[0])), [domain]);
-  const yTicksF = useMemo(() => Array.from({ length: 6 }, (_, i) => (i / 5) * yMax), [yMax]);
+  const yTicksF = useMemo(() => Array.from({ length: 6 }, (_, i) => yMin + (i / 5) * (yMax - yMin)), [yMin, yMax]);
 
   return (
     <div style={{ fontFamily: "'IBM Plex Sans',system-ui,sans-serif", background: "#f0f2f5", minHeight: "100vh" }}>
@@ -2998,7 +3091,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
           <button onClick={() => {
             pushInteraction(T, "reset_zoom", currentIdxRef.current, null, null, { domainBefore: [domain[0], domain[1]] });
             setDomain([xMin, xMax]);
-            setYMax(computeYFit(xMin, xMax));
+            setYRange(computeYFit(xMin, xMax));
           }} data-track="reset_zoom"
             style={{ padding: "5px 12px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", border: "1px solid #d1d5db", background: "#f9fafb", color: "#374151" }}>Reset Zoom</button>
           <span style={{ fontSize: 11, color: "#94a3b8", whiteSpace: "nowrap" }}>{activePeaks.length} peak{activePeaks.length !== 1 ? "s" : ""} annotated</span>
@@ -3083,7 +3176,11 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
             {xTicksF.map((v, i) => <line key={`xg${i}`} x1={fxScale(v)} x2={fxScale(v)} y1={fpad.t} y2={fpad.t + fplotH} stroke="#f1f5f9" />)}
             <line x1={fpad.l} x2={fpad.l} y1={fpad.t} y2={fpad.t + fplotH} stroke="#cbd5e1" />
             <line x1={fpad.l} x2={fpad.l + fplotW} y1={fpad.t + fplotH} y2={fpad.t + fplotH} stroke="#cbd5e1" />
-            {yTicksF.map((v, i) => <text key={`yt${i}`} x={fpad.l - 6} y={fyScale(v) + 4} textAnchor="end" fontSize={11} fill="#94a3b8">{v.toFixed(0)}</text>)}
+            {/* Zero reference line — only when the view extends below 0 */}
+            {yMin < 0 && yMax > 0 && (
+              <line x1={fpad.l} x2={fpad.l + fplotW} y1={fyScale(0)} y2={fyScale(0)} stroke="#cbd5e1" strokeDasharray="4 3" />
+            )}
+            {yTicksF.map((v, i) => <text key={`yt${i}`} x={fpad.l - 6} y={fyScale(v) + 4} textAnchor="end" fontSize={11} fill="#94a3b8">{fmtAxis(v, yMax - yMin)}</text>)}
             {xTicksF.map((v, i) => <text key={`xt${i}`} x={fxScale(v)} y={fpad.t + fplotH + 14} textAnchor="middle" fontSize={11} fill="#94a3b8">{fmt(v)}</text>)}
             <text x={fpad.l + fplotW / 2} y={FH - 2} textAnchor="middle" fontSize={12} fontWeight={600} fill="#64748b">Time</text>
             <text x={13} y={fpad.t + fplotH / 2} textAnchor="middle" fontSize={12} fontWeight={600} fill="#64748b" transform={`rotate(-90,13,${fpad.t + fplotH / 2})`}>Intensity</text>
