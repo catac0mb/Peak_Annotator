@@ -632,6 +632,35 @@ function buildClippedAreaPath(data, startX, endX, xScale, yScale) {
   return d;
 }
 
+// Provenance/edit metadata for a single annotation, for export. Captures who
+// created the peak, and — for AI peaks — whether the participant changed its
+// boundaries from the original AI suggestion and whether it was deleted and
+// then restored at some point.
+//   - addedBy / isAIPeak: origin (user-added vs AI-suggested)
+//   - edited: current boundaries differ from the original suggestion
+//   - everDeleted: the peak was deleted at least once during the session
+//   - deletedThenRestored: it was deleted and is currently restored (active)
+//   - originalStart/Apex/End: the AI's original boundaries (for AI peaks) or
+//     the values at creation (for user peaks), so edit magnitude is recoverable
+function peakProvenance(a) {
+  const isUser = a.id.startsWith("user_");
+  const EPS = 1e-6;
+  const edited =
+    Math.abs((a.userStart ?? a.start) - a.start) > EPS ||
+    Math.abs((a.userApex  ?? a.apex)  - a.apex)  > EPS ||
+    Math.abs((a.userEnd   ?? a.end)   - a.end)   > EPS;
+  return {
+    addedBy: isUser ? "user" : "ai",
+    isAIPeak: !isUser,
+    edited,
+    everDeleted: !!a.everDeleted,
+    deletedThenRestored: !!a.everDeleted && !a.deleted,
+    originalStart: a.start,
+    originalApex: a.apex,
+    originalEnd: a.end,
+  };
+}
+
 // ══════════════════════════════════════════════════════════════════
 //  URL-based data loading (GitHub Pages / static hosting)
 // ══════════════════════════════════════════════════════════════════
@@ -2140,7 +2169,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
       const snap = (allAnnotations[currentIdx] || [])
         .filter(a => !a.deleted)
         .sort((a, b) => a.userApex - b.userApex)
-        .map(a => ({ id: a.id, start: a.userStart, apex: a.userApex, end: a.userEnd, isAIPeak: !a.id.startsWith("user_"), addedBy: a.id.startsWith("user_") ? "user" : "ai" }));
+        .map(a => ({ id: a.id, start: a.userStart, apex: a.userApex, end: a.userEnd, ...peakProvenance(a) }));
       T.annotationSnapshots.push({ timeMs: Date.now() - T.sessionStart, chromIdx: currentIdx, peaks: snap });
       setTick(t => t + 1);
     }, 15000);
@@ -2370,7 +2399,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
 
   const deletePeak = useCallback((id, via = "panel") => {
     const doomed = (allAnnotations[currentIdxRef.current] || []).find(a => a.id === id);
-    setAnnotations(prev => prev.map(a => a.id === id ? { ...a, deleted: true } : a));
+    setAnnotations(prev => prev.map(a => a.id === id ? { ...a, deleted: true, everDeleted: true } : a));
     if (selectedPeakId === id) setSelectedPeakId(null);
     logEdit("delete_peak", id, doomed ? {
       start: doomed.userStart,
@@ -2520,11 +2549,12 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
       let aiStats = null;
       if (vizMode !== "none" && vizMode !== "no_ai" && d.peaks.length > 0) {
         const originalIds = new Set(d.peaks.map(p => p.id));
-        let accepted = 0, modified = 0, deleted = 0;
+        let accepted = 0, modified = 0, deleted = 0, restored = 0;
         const byId = new Map(ap_all.map(a => [a.id, a]));
         for (const orig of d.peaks) {
           const cur = byId.get(orig.id);
           if (!cur || cur.deleted) { deleted++; continue; }
+          if (cur.everDeleted) restored++;   // deleted at some point, then restored
           const EPS = 1e-6;
           const unchanged =
             Math.abs(cur.userStart - orig.start) < EPS &&
@@ -2535,7 +2565,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
         const addedByUser = ap_all.filter(a => !originalIds.has(a.id) && !a.deleted).length;
         aiStats = {
           originalCount: d.peaks.length,
-          accepted, modified, deleted, addedByUser,
+          accepted, modified, deleted, restored, addedByUser,
           acceptanceRate: d.peaks.length > 0 ? accepted / d.peaks.length : null,
         };
       }
@@ -2602,22 +2632,18 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
           const apSorted = [...apActive].sort((a, b) => a.userApex - b.userApex);
           const apLabelMap = new Map();
           apSorted.forEach((p, idx) => apLabelMap.set(p.id, `Peak @ ${fmt(p.userApex)}`));
-          return ap.map(a => {
-            const isUser = a.id.startsWith("user_");
-            return {
-              id: a.id,
-              label: apLabelMap.get(a.id) || a.label,
-              start: a.userStart,
-              apex: a.userApex,
-              end: a.userEnd,
-              confidence: a.confidence,
-              deleted: !!a.deleted,
-              // Provenance: was this peak originally suggested by the AI, or
-              // added from scratch by the participant?
-              addedBy: isUser ? "user" : "ai",
-              isAIPeak: !isUser,
-            };
-          });
+          return ap.map(a => ({
+            id: a.id,
+            label: apLabelMap.get(a.id) || a.label,
+            start: a.userStart,
+            apex: a.userApex,
+            end: a.userEnd,
+            confidence: a.confidence,
+            deleted: !!a.deleted,
+            // Origin + edit/restore provenance (addedBy, isAIPeak, edited,
+            // everDeleted, deletedThenRestored, originalStart/Apex/End).
+            ...peakProvenance(a),
+          }));
         })(),
         visits: chromVisits,                   // raw visit list
       };
@@ -2733,7 +2759,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
   // confirmation modal (see render) so it isn't hit by accident.
   const doQuitStudy = () => {
     const _psQ = [...activePeaks].sort((a, b) => a.userApex - b.userApex)
-      .map(p => ({ id: p.id, start: p.userStart, apex: p.userApex, end: p.userEnd, isAIPeak: !p.id.startsWith("user_"), addedBy: p.id.startsWith("user_") ? "user" : "ai", confidence: p.confidence ?? null }));
+      .map(p => ({ id: p.id, start: p.userStart, apex: p.userApex, end: p.userEnd, confidence: p.confidence ?? null, ...peakProvenance(p) }));
     T.chromFinalStates.push({ chromIdx: currentIdx, chromName: ds.name, snapshotTimeMs: Date.now() - T.sessionStart, domain: [...domain], peaks: _psQ });
     pushInteraction(T, "quit_study", currentIdxRef.current, null, null, {
       chromIdx: currentIdx,
@@ -3564,7 +3590,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
           <div style={{ marginTop: 10 }}>
             {isLastChrom ? (
               <button onClick={() => {
-                const _psL = [...activePeaks].sort((a,b)=>a.userApex-b.userApex).map(p=>({ id:p.id, start:p.userStart, apex:p.userApex, end:p.userEnd, isAIPeak:!p.id.startsWith("user_"), addedBy:p.id.startsWith("user_")?"user":"ai", confidence:p.confidence??null }));
+                const _psL = [...activePeaks].sort((a,b)=>a.userApex-b.userApex).map(p=>({ id:p.id, start:p.userStart, apex:p.userApex, end:p.userEnd, confidence:p.confidence??null, ...peakProvenance(p) }));
                 T.chromFinalStates.push({ chromIdx:currentIdx, chromName:ds.name, snapshotTimeMs:Date.now()-T.sessionStart, domain:[...domain], peaks:_psL });
                 pushInteraction(T, "finish_chrom", currentIdxRef.current, null, null, { chromIdx:currentIdx, peakCountFinal:activePeaks.length, isLastChrom:true, finalPeaks:_psL, viewportDomain:[...domain] });
                 proceedToSurveys();
@@ -3574,7 +3600,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
               </button>
             ) : (
               <button onClick={() => {
-                const _psN = [...activePeaks].sort((a,b)=>a.userApex-b.userApex).map(p=>({ id:p.id, start:p.userStart, apex:p.userApex, end:p.userEnd, isAIPeak:!p.id.startsWith("user_"), addedBy:p.id.startsWith("user_")?"user":"ai", confidence:p.confidence??null }));
+                const _psN = [...activePeaks].sort((a,b)=>a.userApex-b.userApex).map(p=>({ id:p.id, start:p.userStart, apex:p.userApex, end:p.userEnd, confidence:p.confidence??null, ...peakProvenance(p) }));
                 T.chromFinalStates.push({ chromIdx:currentIdx, chromName:ds.name, snapshotTimeMs:Date.now()-T.sessionStart, domain:[...domain], peaks:_psN });
                 pushInteraction(T, "finish_chrom", currentIdxRef.current, null, null, { chromIdx:currentIdx, peakCountFinal:activePeaks.length, isLastChrom:false, finalPeaks:_psN, viewportDomain:[...domain] });
                 goNext();
@@ -3587,7 +3613,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
               <>
               <button onClick={() => {
                 const _chromsDone = finishedAt.filter(t=>t!=null).length;
-                const _psS = [...activePeaks].sort((a,b)=>a.userApex-b.userApex).map(p=>({ id:p.id, start:p.userStart, apex:p.userApex, end:p.userEnd, isAIPeak:!p.id.startsWith("user_"), addedBy:p.id.startsWith("user_")?"user":"ai", confidence:p.confidence??null }));
+                const _psS = [...activePeaks].sort((a,b)=>a.userApex-b.userApex).map(p=>({ id:p.id, start:p.userStart, apex:p.userApex, end:p.userEnd, confidence:p.confidence??null, ...peakProvenance(p) }));
                 pushInteraction(T, "skip_to_surveys", currentIdxRef.current, null, null, {
                   chromIdx: currentIdx, peaksAnnotated: activePeaks.length,
                   totalChroms: datasets.length, chromsCompleted: _chromsDone,
