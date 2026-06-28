@@ -1628,9 +1628,11 @@ function TutorialScreen({ vizMode, onDismiss }) {
                   );
                 })}
 
-                {/* User-added peak fills — neutral blue, shown in every condition */}
+                {/* Gray peak-area fills — user peaks in every condition, plus AI
+                    peaks in peaks_only (same neutral gray, no confidence color) */}
                 {activeTutPeaks.map(pk => {
-                  if (!pk.id.startsWith("user_")) return null;
+                  const isUser = pk.id.startsWith("user_");
+                  if (!isUser && vizMode !== "peaks_only") return null;
                   const x0 = txScale(pk.userStart), x1 = txScale(pk.userEnd);
                   if (x1 < tpad.l || x0 > tpad.l + tPlotW) return null;
                   const areaPath = buildTutPeakAreaPath(pk);
@@ -1646,23 +1648,6 @@ function TutorialScreen({ vizMode, onDismiss }) {
                         stroke={`hsla(220,13%,34%,${strokeOpacity})`} strokeWidth={sel ? 1.5 : 1}
                         style={{ pointerEvents: "visible" }} />
                     </g>
-                  );
-                })}
-
-                {/* Peaks-only: no fill, selection border only */}
-                {vizMode === "peaks_only" && activeTutPeaks.filter(pk => !pk.id.startsWith("user_")).map(pk => {
-                  const x0 = Math.max(txScale(pk.userStart), tpad.l);
-                  const x1 = Math.min(txScale(pk.userEnd), tpad.l + tPlotW);
-                  if (x1 <= x0) return null;
-                  const sel = pk.id === tutSelectedId;
-                  return (
-                    <rect key={`hit${pk.id}`}
-                      x={x0} y={tpad.t} width={x1 - x0} height={tPlotH}
-                      fill="transparent"
-                      stroke={sel ? "#1e40af" : "none"} strokeWidth={sel ? 1.5 : 0}
-                      style={{ cursor: "pointer", pointerEvents: "visible" }}
-                      onPointerEnter={() => setTutHoveredId(pk.id)} onPointerLeave={() => setTutHoveredId(null)}
-                      onClick={e => { e.stopPropagation(); setTutSelectedId(pk.id === tutSelectedId ? null : pk.id); setHasSelectedPeak(true); }} />
                   );
                 })}
 
@@ -3274,12 +3259,13 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
               );
             })}
 
-            {/* User-added peak fills — rendered with a neutral blue (no AI
-                confidence) so the area of peaks the participant adds is visible
-                too, in every condition. A distinct color keeps them readable
-                alongside the confidence-colored AI fills. */}
+            {/* Gray peak-area fills. User-added peaks get the neutral gray fill
+                in every condition; in peaks_only (no confidence color shown) AI
+                peaks get the same gray fill too, so every peak's area is shaded
+                and AI/user peaks share one neutral color. */}
             {fillMode && activePeaks.map(pk => {
-              if (!pk.id.startsWith("user_")) return null;
+              const isUser = pk.id.startsWith("user_");
+              if (!isUser && vizMode !== "peaks_only") return null;
               const x0 = fxScale(pk.userStart), x1 = fxScale(pk.userEnd);
               if (x1 < fpad.l || x0 > fpad.l + fplotW) return null;
               const areaPath = buildPeakAreaPath(pk);
@@ -3300,24 +3286,6 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
                     strokeWidth={sel ? 1.5 : 1}
                     style={{ pointerEvents: "visible" }} />
                 </g>
-              );
-            })}
-
-            {/* Peaks-only: no fill, selection border only */}
-            {vizMode === "peaks_only" && activePeaks.filter(pk => !pk.id.startsWith("user_")).map(pk => {
-              const x0 = Math.max(fxScale(pk.userStart), fpad.l);
-              const x1 = Math.min(fxScale(pk.userEnd), fpad.l + fplotW);
-              if (x1 <= x0) return null;
-              const sel = pk.id === selectedPeakId;
-              return (
-                <rect key={`hit${pk.id}`}
-                  x={x0} y={fpad.t} width={x1 - x0} height={fplotH}
-                  fill="transparent"
-                  stroke={sel ? "#1e40af" : "none"} strokeWidth={sel ? 1.5 : 0}
-                  data-track="peaks_only_fill" data-peak-id={pk.id}
-                  style={{ cursor: "pointer", pointerEvents: "visible" }}
-                  onPointerEnter={() => beginHover(pk.id)} onPointerLeave={() => endHover(false)}
-                  onClick={e => { e.stopPropagation(); endHover(true); setSelectedPeakId(pk.id === selectedPeakId ? null : pk.id); logEdit("select_peak", pk.id, { via: "fill", start: pk.userStart, apex: pk.userApex, end: pk.userEnd }); }} />
               );
             })}
 
