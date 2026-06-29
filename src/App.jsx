@@ -1297,7 +1297,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
       // Select a peak
       allSteps.push({
         title: "Reviewing a Detection",
-        instruction: "To review an AI detection, click on its pill in the peak list below the chart. This selects the peak and shows its start, apex, and end boundary lines on the chart, along with draggable handles.\n\nEach pill also has a red \u2715 button \u2014 click it to delete that peak without needing to select it first.\n\nClick on the peak at t\u22482.50 in the peak list to select it.",
+        instruction: "To review an AI detection, click on its pill in the peak list below the chart. This selects the peak and shows its start, apex, and end boundary lines on the chart, along with draggable handles.\n\nEach pill also has a red \u2715 button \u2014 you can click it to delete that peak without needing to select it first. If you accidentally delete a peak, it stays visible (grayed out) in the list \u2014 and you can click it to restore it.\n\nFor now, click on the peak at t\u22482.50 in the peak list to select it.",
         task: "Click a peak pill to select it",
         isDone: hasSelectedPeak,
         feedback: null,
