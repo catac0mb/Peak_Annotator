@@ -3179,7 +3179,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
             AI Confidence (low → high)
           </span>
           <span style={{ color: "#94a3b8" }}>
-            · Click a badge on the chart or a pill below to select · Drag handles to adjust · Scroll to zoom · Drag chart to pan · Click \u2715 on a pill to delete
+            · Click a badge on the chart or a pill below to select · Drag handles to adjust · Scroll to zoom · Drag chart to pan · Click the x on a pill to delete
           </span>
         </div>
       )}
@@ -3590,7 +3590,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
                 proceedToSurveys();
               }} data-track="skip_to_surveys"
                 style={{ width: "100%", marginTop: 8, padding: "11px 20px", borderRadius: 10, border: "1.5px solid #cbd5e1", fontSize: 13, fontWeight: 600, cursor: "pointer", background: "#f8fafc", color: "#475569" }}>
-                I&rsquo;m done annotating &mdash; take me to the surveys &rarr;
+                I&rsquo;m bored of annotating &mdash; take me to the surveys &rarr;
               </button>
               <div style={{ marginTop: 6, fontSize: 11, color: "#94a3b8", textAlign: "center", lineHeight: 1.4 }}>
                 There are many chromatograms &mdash; you do not have to finish them all. Click the button above whenever you no longer want to keep annotating.
@@ -3604,7 +3604,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
             <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
               <button onClick={() => setShowQuitConfirm(true)} data-track="quit_study_open"
                 style={{ width: "100%", padding: "9px 16px", borderRadius: 9, border: "1.5px solid #fca5a5", fontSize: 12.5, fontWeight: 700, cursor: "pointer", background: "#fff", color: "#b91c1c" }}>
-                &#9888; Quit study &amp; skip to the end
+                &#9888; Quit study 
               </button>
               <div style={{ marginTop: 6, fontSize: 10.5, color: "#94a3b8", textAlign: "center", lineHeight: 1.4 }}>
                 Emergency exit only. Saves your data and jumps straight to the final completion code, skipping the rest of the study <strong>and all surveys</strong>. This is <strong>not</strong> the same as finishing normally &mdash; only use it if you need to back out.
