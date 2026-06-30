@@ -1474,6 +1474,24 @@ function TutorialScreen({ vizMode, onDismiss }) {
 
       </div>
 
+      {/* ── Navigation bar — sticky so Back / Next are always reachable without
+            scrolling (scrolling over the practice chart zooms it). ── */}
+      <div style={{ position: "sticky", top: 0, zIndex: 50, background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "8px 20px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", boxShadow: "0 2px 8px rgba(0,0,0,.06)" }}>
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: "#1e293b" }}>Tutorial &mdash; Step {step + 1} of {steps.length}</span>
+        {!canAdvance && current.task && (
+          <span style={{ fontSize: 11, color: "#f59e0b", fontWeight: 600 }}>Complete the task below to continue</span>
+        )}
+        <div style={{ flex: 1, minWidth: 8 }} />
+        <button onClick={() => setStep(s => s - 1)} disabled={step === 0} data-track="tutorial_back"
+          style={{ padding: "8px 16px", borderRadius: 8, border: "1.5px solid #d1d5db", background: "#fff", fontSize: 13, fontWeight: 600, cursor: step === 0 ? "not-allowed" : "pointer", opacity: step === 0 ? .4 : 1, color: "#374151" }}>
+          ← Back
+        </button>
+        <button onClick={() => { setCompletedSteps(prev => { const n = new Set(prev); n.add(step); return n; }); if (isLast) onDismiss(); else setStep(s => s + 1); }} disabled={!canAdvance} data-track="tutorial_next"
+          style={{ padding: "9px 20px", borderRadius: 8, border: "none", background: canAdvance ? (isLast ? "#059669" : "#1e40af") : "#cbd5e1", color: "#fff", fontSize: 13.5, fontWeight: 700, cursor: canAdvance ? "pointer" : "not-allowed", boxShadow: canAdvance ? "0 2px 10px rgba(30,64,175,.25)" : "none" }}>
+          {isLast ? "✅ Start Annotating" : "Next →"}
+        </button>
+      </div>
+
       {/* ── Task reminder banner ── */}
       <div style={{ background: "#fff", borderBottom: "2px solid #e5e7eb", padding: "10px 20px", display: "flex", alignItems: "center", gap: 0 }}>
         {tutTaskSteps.map((s, si) => (
@@ -1887,44 +1905,14 @@ function TutorialScreen({ vizMode, onDismiss }) {
                 </div>
               )}
 
-              {/* Navigation buttons */}
-              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={() => setStep(s => s - 1)} disabled={step === 0}
-                    style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid #d1d5db", background: "#fff", fontSize: 13, fontWeight: 600, cursor: step === 0 ? "not-allowed" : "pointer", opacity: step === 0 ? .4 : 1, color: "#374151" }}>
-                    ← Back
-                  </button>
-                  <button onClick={() => { setCompletedSteps(prev => { const n = new Set(prev); n.add(step); return n; }); if (isLast) onDismiss(); else setStep(s => s + 1); }} disabled={!canAdvance}
-                    style={{ flex: 2, padding: "10px 20px", borderRadius: 8, border: "none", background: canAdvance ? (isLast ? "#059669" : "#1e40af") : "#cbd5e1", color: "#fff", fontSize: 13, fontWeight: 700, cursor: canAdvance ? "pointer" : "not-allowed" }}>
-                    {isLast ? "✅ Start Annotating" : `Next → ${steps[step + 1] ? steps[step + 1].title : ""}`}
-                  </button>
-                </div>
-                {!canAdvance && current.task && (
-                  <div style={{ textAlign: "center", fontSize: 11, color: "#f59e0b", fontWeight: 500 }}>Complete the task above to continue</div>
-                )}
-              </div>
+              {/* Step navigation moved to the sticky bar at the top. */}
             </div>
           </div>
         </>
       )}
 
-      {/* ── Text-only steps (welcome + final) — centered card ── */}
-      {!showChart && (
-        <div style={{ display: "flex", justifyContent: "center", alignItems: "flex-start", padding: "20px" }}>
-          <div style={{ maxWidth: 560, width: "100%", display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => setStep(s => s - 1)} disabled={step === 0}
-                style={{ flex: 1, padding: "12px", borderRadius: 8, border: "1px solid #d1d5db", background: "#fff", fontSize: 13, fontWeight: 600, cursor: step === 0 ? "not-allowed" : "pointer", opacity: step === 0 ? .4 : 1, color: "#374151" }}>
-                ← Back
-              </button>
-              <button onClick={() => { setCompletedSteps(prev => { const n = new Set(prev); n.add(step); return n; }); if (isLast) onDismiss(); else setStep(s => s + 1); }} disabled={!canAdvance}
-                style={{ flex: 2, padding: "12px 20px", borderRadius: 8, border: "none", background: canAdvance ? (isLast ? "#059669" : "#1e40af") : "#cbd5e1", color: "#fff", fontSize: 14, fontWeight: 700, cursor: canAdvance ? "pointer" : "not-allowed" }}>
-                {isLast ? "✅ Start Annotating" : "Next →"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ── Text-only steps (welcome + final): instruction card above is all
+            that's needed; Back / Next live in the sticky bar at the top. ── */}
     </div>
   );
 }
@@ -3683,11 +3671,14 @@ function NasaTlxSurvey({ onComplete, onQuit }) {
           const isDragging = draggingScale === scale.id;
           const isHovered = hoveredScale === scale.id || isDragging;
           const touched = interacted[scale.id];
+          const isMissing = attempted && !touched;
           return (
-            <div key={scale.id} style={{ marginBottom: 28 }}
+            <div key={scale.id} style={isMissing
+              ? { marginBottom: 28, border: "1.5px solid #fca5a5", background: "#fef2f2", borderRadius: 10, padding: "12px 14px" }
+              : { marginBottom: 28 }}
               onMouseEnter={() => setHoveredScale(scale.id)}
               onMouseLeave={() => setHoveredScale(null)}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "#1e293b", marginBottom: 2 }}>{scale.label}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#1e293b", marginBottom: 2 }}>{scale.label}{isMissing && <span style={{ color: "#dc2626", fontSize: 12, fontWeight: 600, marginLeft: 8 }}>— not set yet</span>}</div>
               <div style={{ fontSize: 12, color: "#64748b", marginBottom: 10 }}>{scale.desc}</div>
 
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -3836,8 +3827,12 @@ function FeedbackSurvey({ onComplete, onQuit }) {
           Please share your thoughts about the annotation task. Your honest feedback is valuable for improving the study.
         </p>
 
-        {FEEDBACK_QUESTIONS.map((q, idx) => (
-          <div key={q.id} style={{ marginBottom: 24 }}>
+        {FEEDBACK_QUESTIONS.map((q, idx) => {
+          const isMissing = attempted && q.type !== "open" && responses[q.id] == null;
+          return (
+          <div key={q.id} style={isMissing
+            ? { marginBottom: 24, border: "1.5px solid #fca5a5", background: "#fef2f2", borderRadius: 10, padding: "12px 14px" }
+            : { marginBottom: 24 }}>
             <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5, marginBottom: 8 }}>
               <span style={{ color: "#94a3b8", fontSize: 11, marginRight: 6 }}>{idx + 1}.</span>
               {q.text}
@@ -3906,7 +3901,8 @@ function FeedbackSurvey({ onComplete, onQuit }) {
               />
             )}
           </div>
-        ))}
+          );
+        })}
 
         {attempted && !allAnswered && (
           <div style={{ marginTop: 16, padding: "12px 16px", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 10, fontSize: 13, color: "#b91c1c", lineHeight: 1.6 }}>
@@ -3977,9 +3973,13 @@ function DemographicsSurvey({ onComplete, onQuit }) {
     if (val === "Other" && (otherText[q.id] || "").trim().length === 0) return false;
     return true;
   };
+  const needsSpecify = (q) => q.type === "radio_other" && responses[q.id] === "Other" && (otherText[q.id] || "").trim().length === 0;
   const missing = DEMO_QUESTIONS.filter(q => !isAnswered(q));
   const allAnswered = missing.length === 0;
-  const demoLabel = (q) => `${q.section ? q.section + " — " : ""}${q.text.length > 70 ? q.text.slice(0, 70) + "…" : q.text}`;
+  const demoLabel = (q) => {
+    const base = `${q.section ? q.section + " — " : ""}${q.text.length > 70 ? q.text.slice(0, 70) + "…" : q.text}`;
+    return needsSpecify(q) ? `${base} (you selected “Other” — please specify your answer)` : base;
+  };
 
   let currentSection = "";
 
@@ -4004,10 +4004,13 @@ function DemographicsSurvey({ onComplete, onQuit }) {
           }
 
           if (q.type === "open") {
+            const isMissing = attempted && !isAnswered(q);
             return (
               <div key={q.id}>
                 {sectionHeader}
-                <div style={{ marginBottom: 20 }}>
+                <div style={isMissing
+                  ? { marginBottom: 20, border: "1.5px solid #fca5a5", background: "#fef2f2", borderRadius: 10, padding: "12px 14px" }
+                  : { marginBottom: 20 }}>
                   <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5, marginBottom: 8 }}>
                     {q.text}{q.required && <span style={{ color: "#dc2626", marginLeft: 2 }}>*</span>}
                   </div>
@@ -4031,10 +4034,14 @@ function DemographicsSurvey({ onComplete, onQuit }) {
 
           const hasOther = q.type === "radio_other";
           const opts = hasOther ? [...q.options, "Other"] : q.options;
+          const isMissing = attempted && !isAnswered(q);
+          const specifyMissing = attempted && needsSpecify(q);
           return (
             <div key={q.id}>
               {sectionHeader}
-              <div style={{ marginBottom: 20 }}>
+              <div style={isMissing
+                ? { marginBottom: 20, border: "1.5px solid #fca5a5", background: "#fef2f2", borderRadius: 10, padding: "12px 14px" }
+                : { marginBottom: 20 }}>
                 <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5, marginBottom: 8 }}>
                   {q.text}{q.required && <span style={{ color: "#dc2626", marginLeft: 2 }}>*</span>}
                 </div>
@@ -4064,11 +4071,18 @@ function DemographicsSurvey({ onComplete, onQuit }) {
                   );
                 })()}
                 {hasOther && responses[q.id] === "Other" && (
-                  <input type="text" value={otherText[q.id] || ""} placeholder="Please specify"
-                    onChange={e => setOtherText(prev => ({ ...prev, [q.id]: e.target.value }))}
-                    style={{ marginTop: 8, padding: "8px 12px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 13, width: "100%", boxSizing: "border-box", outline: "none" }}
-                    onFocus={e => e.target.style.borderColor = "#93c5fd"}
-                    onBlur={e => e.target.style.borderColor = "#d1d5db"} />
+                  <>
+                    <input type="text" value={otherText[q.id] || ""} placeholder="Please specify"
+                      onChange={e => setOtherText(prev => ({ ...prev, [q.id]: e.target.value }))}
+                      style={{ marginTop: 8, padding: "8px 12px", borderRadius: 6, border: specifyMissing ? "1.5px solid #dc2626" : "1px solid #d1d5db", background: specifyMissing ? "#fff" : "#fff", fontSize: 13, width: "100%", boxSizing: "border-box", outline: "none" }}
+                      onFocus={e => e.target.style.borderColor = "#93c5fd"}
+                      onBlur={e => e.target.style.borderColor = specifyMissing ? "#dc2626" : "#d1d5db"} />
+                    {specifyMissing && (
+                      <div style={{ marginTop: 4, fontSize: 11.5, color: "#dc2626", fontWeight: 600 }}>
+                        You selected “Other” — please type your answer here.
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
