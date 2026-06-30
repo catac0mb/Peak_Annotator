@@ -1143,9 +1143,15 @@ function TutorialScreen({ vizMode, onDismiss }) {
       setTutAnnotations(prev => prev.map(a => {
         if (a.id !== d.peakId) return a;
         const u = { ...a };
-        if (d.handle === 'start') u.userStart = Math.min(xVal, a.userEnd - 0.05);
-        else if (d.handle === 'end') u.userEnd = Math.max(xVal, a.userStart + 0.05);
-        else u.userApex = Math.max(a.userStart, Math.min(a.userEnd, xVal));
+        if (d.handle === 'start') {
+          u.userStart = Math.min(xVal, a.userEnd - 0.05);
+          if (u.userApex < u.userStart) u.userApex = u.userStart;
+        } else if (d.handle === 'end') {
+          u.userEnd = Math.max(xVal, a.userStart + 0.05);
+          if (u.userApex > u.userEnd) u.userApex = u.userEnd;
+        } else {
+          u.userApex = Math.max(u.userStart, Math.min(u.userEnd, xVal));
+        }
         return u;
       }));
       tutForce(n => n + 1);
@@ -1377,7 +1383,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
     // ── STEP: Navigation ──
     allSteps.push({
       title: "Moving Between Chromatograms",
-      instruction: "When you finish annotating the current chromatogram, click the large blue button below the chart that says \"Finish This Chromatogram & Start Next\" to advance to the next one.\n\nYou cannot go back to a previous chromatogram, so take your time on each one before moving on.",
+      instruction: "When you finish annotating the current chromatogram, click the large blue \"Finish This Chromatogram & Start Next\" button in the navigation bar at the top of the screen to advance to the next one.\n\nThat bar stays pinned at the top, so you can always reach it without scrolling. You cannot go back to a previous chromatogram, so take your time on each one before moving on.",
       task: null,
       isDone: true,
       feedback: null,
@@ -1387,8 +1393,8 @@ function TutorialScreen({ vizMode, onDismiss }) {
     allSteps.push({
       title: "You're Ready!",
       instruction: isAICondition
-        ? "Great job completing the tutorial! To summarize your task:\n\nFor each chromatogram, review every AI-detected peak and ask yourself: \u201cIs this a real peak? Are its boundaries correct?\u201d\n\n\u2022 If the peak is real and boundaries are correct \u2014 leave it as is\n\u2022 If the peak is real but boundaries are wrong \u2014 drag the handles to fix them\n\u2022 If the detection is not a real peak \u2014 click the red \u2715 on its pill to delete it\n\u2022 If the AI missed a real peak \u2014 add it with \u201c+ Add Peak\u201d\n\u2022 Deleted peaks appear grayed out \u2014 click them to restore if needed\n\nWhen you are done with a chromatogram, click the large blue \u201cFinish This Chromatogram & Start Next\u201d button to move on to the next one.\n\n\u26a0\ufe0f IMPORTANT \u2014 YOU DO NOT HAVE TO ANNOTATE EVERY CHROMATOGRAM. There are many chromatograms in this study, and you are not expected to get through all of them. As soon as you are bored of annotating, you should stop and move on to the surveys \u2014 this is completely fine and expected.\n\nTo do that, click the grey button located directly beneath the big blue \u201cFinish This Chromatogram & Start Next\u201d button. It reads \u201cI\u2019m bored of annotating \u2014 take me to the surveys.\u201d You can click it at any time, after any chromatogram, to jump straight to the surveys.\n\nYou\u2019ll then complete three short surveys. Click \u201cStart Annotating\u201d when you\u2019re ready!"
-        : "Great job completing the tutorial! To summarize your task:\n\nFor each chromatogram, find every peak and label its start, apex, and end boundaries using \u201c+ Add Peak\u201d and the drag handles.\n\nA peak is a region where the signal rises clearly above the baseline and then returns. Use zoom and pan to inspect the chromatogram carefully.\n\n\u2022 Use the \u2715 button on a peak pill to delete it, or select it and click Delete Peak Annotation\n\u2022 Deleted peaks appear grayed out \u2014 click them to restore if needed\n\nWhen you are done with a chromatogram, click the large blue \u201cFinish This Chromatogram & Start Next\u201d button to move on to the next one.\n\n\u26a0\ufe0f IMPORTANT \u2014 YOU DO NOT HAVE TO ANNOTATE EVERY CHROMATOGRAM. There are many chromatograms in this study, and you are not expected to get through all of them. As soon as you no are bored of annotating, you should stop and move on to the surveys \u2014 this is completely fine and expected.\n\nTo do that, click the grey button located directly beneath the big blue \u201cFinish This Chromatogram & Start Next\u201d button. It reads \u201cI\u2019m bored of annotating \u2014 take me to the surveys.\u201d You can click it at any time, after any chromatogram, to jump straight to the surveys.\n\nYou\u2019ll then complete three short surveys. Click \u201cStart Annotating\u201d when you\u2019re ready!",
+        ? "Great job completing the tutorial! To summarize your task:\n\nFor each chromatogram, review every AI-detected peak and ask yourself: \u201cIs this a real peak? Are its boundaries correct?\u201d\n\n\u2022 If the peak is real and boundaries are correct \u2014 leave it as is\n\u2022 If the peak is real but boundaries are wrong \u2014 drag the handles to fix them\n\u2022 If the detection is not a real peak \u2014 click the red \u2715 on its pill to delete it\n\u2022 If the AI missed a real peak \u2014 add it with \u201c+ Add Peak\u201d\n\u2022 Deleted peaks appear grayed out \u2014 click them to restore if needed\n\nWhen you are done with a chromatogram, click the large blue \u201cFinish This Chromatogram & Start Next\u201d button in the bar at the top of the screen to move on to the next one.\n\n\u26a0\ufe0f IMPORTANT \u2014 YOU DO NOT HAVE TO ANNOTATE EVERY CHROMATOGRAM. There are many chromatograms in this study, and you are not expected to get through all of them. As soon as you no longer feel like annotating, you should stop and move on to the surveys \u2014 this is completely fine and expected.\n\nTo do that, click the grey button in that same top bar, just to the left of the blue \u201cFinish This Chromatogram & Start Next\u201d button. It reads \u201cI don\u2019t feel like annotating anymore \u2014 take me to the surveys.\u201d You can click it at any time, after any chromatogram, to jump straight to the surveys.\n\nYou\u2019ll then complete three short surveys. Click \u201cStart Annotating\u201d when you\u2019re ready!"
+        : "Great job completing the tutorial! To summarize your task:\n\nFor each chromatogram, find every peak and label its start, apex, and end boundaries using \u201c+ Add Peak\u201d and the drag handles.\n\nA peak is a region where the signal rises clearly above the baseline and then returns. Use zoom and pan to inspect the chromatogram carefully.\n\n\u2022 Use the \u2715 button on a peak pill to delete it, or select it and click Delete Peak Annotation\n\u2022 Deleted peaks appear grayed out \u2014 click them to restore if needed\n\nWhen you are done with a chromatogram, click the large blue \u201cFinish This Chromatogram & Start Next\u201d button in the bar at the top of the screen to move on to the next one.\n\n\u26a0\ufe0f IMPORTANT \u2014 YOU DO NOT HAVE TO ANNOTATE EVERY CHROMATOGRAM. There are many chromatograms in this study, and you are not expected to get through all of them. As soon as you no longer feel like annotating, you should stop and move on to the surveys \u2014 this is completely fine and expected.\n\nTo do that, click the grey button in that same top bar, just to the left of the blue \u201cFinish This Chromatogram & Start Next\u201d button. It reads \u201cI don\u2019t feel like annotating anymore \u2014 take me to the surveys.\u201d You can click it at any time, after any chromatogram, to jump straight to the surveys.\n\nYou\u2019ll then complete three short surveys. Click \u201cStart Annotating\u201d when you\u2019re ready!",
       task: null,
       isDone: true,
       feedback: null,
@@ -2330,9 +2336,15 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
       setAnnotations(prev => prev.map(a => {
         if (a.id !== d.peakId) return a;
         const u = { ...a };
-        if (d.handle === 'start') u.userStart = Math.min(xVal, a.userEnd - 0.002);
-        else if (d.handle === 'end') u.userEnd = Math.max(xVal, a.userStart + 0.002);
-        else u.userApex = Math.max(a.userStart, Math.min(a.userEnd, xVal));
+        if (d.handle === 'start') {
+          u.userStart = Math.min(xVal, a.userEnd - 0.002);
+          if (u.userApex < u.userStart) u.userApex = u.userStart;   // apex can't fall left of start
+        } else if (d.handle === 'end') {
+          u.userEnd = Math.max(xVal, a.userStart + 0.002);
+          if (u.userApex > u.userEnd) u.userApex = u.userEnd;        // apex can't fall right of end
+        } else {
+          u.userApex = Math.max(u.userStart, Math.min(u.userEnd, xVal));
+        }
         return u;
       }));
       forceRender(n => n + 1);
@@ -2737,6 +2749,26 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
     onStudyComplete(results);
   };
 
+  // ── Navigation handlers (shared by the top nav bar) ──
+  const finishCurrentChrom = (last) => {
+    const _ps = [...activePeaks].sort((a, b) => a.userApex - b.userApex)
+      .map(p => ({ id: p.id, start: p.userStart, apex: p.userApex, end: p.userEnd, confidence: p.confidence ?? null, ...peakProvenance(p) }));
+    T.chromFinalStates.push({ chromIdx: currentIdx, chromName: ds.name, snapshotTimeMs: Date.now() - T.sessionStart, domain: [...domain], peaks: _ps });
+    pushInteraction(T, "finish_chrom", currentIdxRef.current, null, null, { chromIdx: currentIdx, peakCountFinal: activePeaks.length, isLastChrom: last, finalPeaks: _ps, viewportDomain: [...domain] });
+    if (last) proceedToSurveys(); else goNext();
+  };
+  const skipToSurveys = () => {
+    const _chromsDone = finishedAt.filter(t => t != null).length;
+    const _psS = [...activePeaks].sort((a, b) => a.userApex - b.userApex)
+      .map(p => ({ id: p.id, start: p.userStart, apex: p.userApex, end: p.userEnd, confidence: p.confidence ?? null, ...peakProvenance(p) }));
+    pushInteraction(T, "skip_to_surveys", currentIdxRef.current, null, null, {
+      chromIdx: currentIdx, peaksAnnotated: activePeaks.length,
+      totalChroms: datasets.length, chromsCompleted: _chromsDone,
+      finalPeaks: _psS, viewportDomain: [...domain],
+    });
+    proceedToSurveys();
+  };
+
   // ── Quit study (emergency early exit) ──
   // Distinct from "I'm done annotating — take me to the surveys": this skips the
   // remaining chromatograms AND all surveys, uploads whatever data exists, and
@@ -2984,9 +3016,15 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
       setAnnotations(prev => prev.map(a => {
         if (a.id !== d.peakId) return a;
         const u = { ...a };
-        if (d.handle === 'start') u.userStart = Math.min(xVal, a.userEnd - 0.002);
-        else if (d.handle === 'end') u.userEnd = Math.max(xVal, a.userStart + 0.002);
-        else u.userApex = Math.max(a.userStart, Math.min(a.userEnd, xVal));
+        if (d.handle === 'start') {
+          u.userStart = Math.min(xVal, a.userEnd - 0.002);
+          if (u.userApex < u.userStart) u.userApex = u.userStart;   // apex can't fall left of start
+        } else if (d.handle === 'end') {
+          u.userEnd = Math.max(xVal, a.userStart + 0.002);
+          if (u.userApex > u.userEnd) u.userApex = u.userEnd;        // apex can't fall right of end
+        } else {
+          u.userApex = Math.max(u.userStart, Math.min(u.userEnd, xVal));
+        }
         return u;
       }));
       forceRender(n => n + 1);
@@ -3080,23 +3118,23 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
             style={{ background: "#fff", borderRadius: 14, maxWidth: 460, width: "100%", padding: "26px 26px 22px", boxShadow: "0 20px 60px rgba(0,0,0,.3)" }}>
             <div style={{ fontSize: 34, textAlign: "center", marginBottom: 8 }}>&#9888;&#65039;</div>
             <h2 style={{ fontSize: 19, fontWeight: 800, color: "#b91c1c", textAlign: "center", margin: "0 0 14px" }}>
-              Quit the study and skip to the end?
+              Are you sure you want to quit?
             </h2>
             <p style={{ fontSize: 13.5, color: "#334155", lineHeight: 1.6, margin: "0 0 10px" }}>
-              This will <strong>skip the rest of the study entirely</strong> &mdash; the remaining chromatograms <strong>and all of the surveys</strong> &mdash; and take you straight to the final completion code. Your data so far will still be saved.
+              This <strong>ends the study immediately</strong>. It skips the rest of the study entirely &mdash; the remaining chromatograms <strong>and all of the surveys</strong> &mdash; and takes you straight to the final completion code. Your data so far will still be saved.
             </p>
             <p style={{ fontSize: 13.5, color: "#334155", lineHeight: 1.6, margin: "0 0 18px" }}>
               Only use this if you need to <strong>back out of the study</strong>. If you are simply done annotating and want to continue normally, go back and use the
-              {" "}<em>&ldquo;I&rsquo;m bored of annotating &mdash; take me to the surveys&rdquo;</em> button instead.
+              {" "}<em>&ldquo;I don&rsquo;t feel like annotating anymore &mdash; take me to the surveys&rdquo;</em> button instead.
             </p>
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => setShowQuitConfirm(false)} data-track="quit_study_cancel"
                 style={{ flex: 1, padding: "11px", borderRadius: 9, border: "1.5px solid #cbd5e1", background: "#f8fafc", color: "#334155", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>
-                Go back
+                No, keep going
               </button>
               <button onClick={() => { setShowQuitConfirm(false); doQuitStudy(); }} data-track="quit_study_confirm"
                 style={{ flex: 1, padding: "11px", borderRadius: 9, border: "none", background: "#dc2626", color: "#fff", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>
-                Quit &amp; skip to end
+                Yes, quit &amp; end the study
               </button>
             </div>
           </div>
@@ -3115,6 +3153,29 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
 
         <button onClick={() => setShowTutorial(true)} data-track="open_tutorial"
           style={{ padding: "5px 10px", borderRadius: 7, border: "1px solid rgba(255,255,255,.18)", background: "rgba(255,255,255,.05)", color: "rgba(255,255,255,.55)", fontSize: 11, cursor: "pointer" }}>?</button>
+      </div>
+
+      {/* ── Navigation bar — sticky so it's always reachable without scrolling
+            (scrolling over the chart zooms, so a scroll-free location for the
+            Next / surveys / quit controls avoids that conflict). ── */}
+      <div style={{ position: "sticky", top: 0, zIndex: 50, background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "8px 20px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", boxShadow: "0 2px 8px rgba(0,0,0,.06)" }}>
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: "#1e293b" }}>Chromatogram {currentIdx + 1}</span>
+        <span style={{ fontSize: 11, color: "#94a3b8" }}>You do not have to finish every chromatogram.</span>
+        <div style={{ flex: 1, minWidth: 8 }} />
+        {!isLastChrom && (
+          <button onClick={skipToSurveys} data-track="skip_to_surveys"
+            style={{ padding: "8px 14px", borderRadius: 8, border: "1.5px solid #cbd5e1", fontSize: 12.5, fontWeight: 600, cursor: "pointer", background: "#f8fafc", color: "#475569" }}>
+            I don&rsquo;t feel like annotating anymore &mdash; take me to the surveys &rarr;
+          </button>
+        )}
+        <button onClick={() => finishCurrentChrom(isLastChrom)} data-track={isLastChrom ? "nav_to_surveys" : "nav_next"}
+          style={{ padding: "9px 18px", borderRadius: 8, border: "none", fontSize: 13.5, fontWeight: 700, cursor: "pointer", color: "#fff", background: isLastChrom ? "linear-gradient(135deg,#059669,#10b981)" : "linear-gradient(135deg,#1e40af,#3b82f6)", boxShadow: isLastChrom ? "0 2px 10px rgba(5,150,105,.3)" : "0 2px 10px rgba(30,64,175,.25)" }}>
+          {isLastChrom ? "Finish & Continue to Surveys →" : "Finish This Chromatogram & Start Next →"}
+        </button>
+        <button onClick={() => setShowQuitConfirm(true)} data-track="quit_study_open"
+          style={{ padding: "8px 12px", borderRadius: 8, border: "1.5px solid #fca5a5", fontSize: 12, fontWeight: 700, cursor: "pointer", background: "#fff", color: "#b91c1c" }}>
+          &#9888; Quit study
+        </button>
       </div>
 
       {/* ── Task reminder banner ── */}
@@ -3554,63 +3615,9 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
             </div>
           )}
 
-          {/* Finish button */}
-          <div style={{ marginTop: 10 }}>
-            {isLastChrom ? (
-              <button onClick={() => {
-                const _psL = [...activePeaks].sort((a,b)=>a.userApex-b.userApex).map(p=>({ id:p.id, start:p.userStart, apex:p.userApex, end:p.userEnd, confidence:p.confidence??null, ...peakProvenance(p) }));
-                T.chromFinalStates.push({ chromIdx:currentIdx, chromName:ds.name, snapshotTimeMs:Date.now()-T.sessionStart, domain:[...domain], peaks:_psL });
-                pushInteraction(T, "finish_chrom", currentIdxRef.current, null, null, { chromIdx:currentIdx, peakCountFinal:activePeaks.length, isLastChrom:true, finalPeaks:_psL, viewportDomain:[...domain] });
-                proceedToSurveys();
-              }} data-track="nav_to_surveys_bottom"
-                style={{ width: "100%", padding: "13px 20px", borderRadius: 10, border: "none", fontSize: 14, fontWeight: 700, cursor: "pointer", background: "linear-gradient(135deg,#059669,#10b981)", color: "#fff", boxShadow: "0 4px 14px rgba(5,150,105,.3)" }}>
-                Finish &amp; Continue to Surveys →
-              </button>
-            ) : (
-              <button onClick={() => {
-                const _psN = [...activePeaks].sort((a,b)=>a.userApex-b.userApex).map(p=>({ id:p.id, start:p.userStart, apex:p.userApex, end:p.userEnd, confidence:p.confidence??null, ...peakProvenance(p) }));
-                T.chromFinalStates.push({ chromIdx:currentIdx, chromName:ds.name, snapshotTimeMs:Date.now()-T.sessionStart, domain:[...domain], peaks:_psN });
-                pushInteraction(T, "finish_chrom", currentIdxRef.current, null, null, { chromIdx:currentIdx, peakCountFinal:activePeaks.length, isLastChrom:false, finalPeaks:_psN, viewportDomain:[...domain] });
-                goNext();
-              }} data-track="nav_next_bottom"
-                style={{ width: "100%", padding: "13px 20px", borderRadius: 10, border: "none", fontSize: 14, fontWeight: 700, cursor: "pointer", background: "linear-gradient(135deg,#1e40af,#3b82f6)", color: "#fff", boxShadow: "0 4px 14px rgba(30,64,175,.25)" }}>
-                Finish This Chromatogram &amp; Start Next →
-              </button>
-            )}
-            {!isLastChrom && (
-              <>
-              <button onClick={() => {
-                const _chromsDone = finishedAt.filter(t=>t!=null).length;
-                const _psS = [...activePeaks].sort((a,b)=>a.userApex-b.userApex).map(p=>({ id:p.id, start:p.userStart, apex:p.userApex, end:p.userEnd, confidence:p.confidence??null, ...peakProvenance(p) }));
-                pushInteraction(T, "skip_to_surveys", currentIdxRef.current, null, null, {
-                  chromIdx: currentIdx, peaksAnnotated: activePeaks.length,
-                  totalChroms: datasets.length, chromsCompleted: _chromsDone,
-                  finalPeaks: _psS, viewportDomain: [...domain],
-                });
-                proceedToSurveys();
-              }} data-track="skip_to_surveys"
-                style={{ width: "100%", marginTop: 8, padding: "11px 20px", borderRadius: 10, border: "1.5px solid #cbd5e1", fontSize: 13, fontWeight: 600, cursor: "pointer", background: "#f8fafc", color: "#475569" }}>
-                I&rsquo;m bored of annotating &mdash; take me to the surveys &rarr;
-              </button>
-              <div style={{ marginTop: 6, fontSize: 11, color: "#94a3b8", textAlign: "center", lineHeight: 1.4 }}>
-                There are many chromatograms &mdash; you do not have to finish them all. Click the button above whenever you no longer want to keep annotating.
-              </div>
-              </>
-            )}
-
-            {/* Quit study — emergency early exit. Deliberately styled and worded
-                differently from the grey "done annotating" button above so it
-                isn't mistaken for the normal way to finish. */}
-            <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
-              <button onClick={() => setShowQuitConfirm(true)} data-track="quit_study_open"
-                style={{ width: "100%", padding: "9px 16px", borderRadius: 9, border: "1.5px solid #fca5a5", fontSize: 12.5, fontWeight: 700, cursor: "pointer", background: "#fff", color: "#b91c1c" }}>
-                &#9888; Quit study 
-              </button>
-              <div style={{ marginTop: 6, fontSize: 10.5, color: "#94a3b8", textAlign: "center", lineHeight: 1.4 }}>
-                Emergency exit only. Saves your data and jumps straight to the final completion code, skipping the rest of the study <strong>and all surveys</strong>. This is <strong>not</strong> the same as finishing normally &mdash; only use it if you need to back out.
-              </div>
-            </div>
-          </div>
+          {/* Navigation (Finish / surveys / quit) now lives in the sticky bar
+              at the top of the screen, so it is always reachable without
+              scrolling past the chart. */}
         </div>
       </div>
     </>)}
@@ -3644,6 +3651,8 @@ function NasaTlxSurvey({ onComplete, onQuit }) {
     NASA_TLX_SCALES.forEach(s => { r[s.id] = false; });
     return r;
   });
+  const [attempted, setAttempted] = useState(false);
+  const missing = NASA_TLX_SCALES.filter(s => !interacted[s.id]);
 
   const handleClick = useCallback((id, val) => {
     setResponses(prev => ({ ...prev, [id]: val }));
@@ -3764,7 +3773,16 @@ function NasaTlxSurvey({ onComplete, onQuit }) {
           );
         })}
 
-        <button onClick={() => onComplete(responses)} data-track="survey_nasa_tlx_submit"
+        {attempted && missing.length > 0 && (
+          <div style={{ marginTop: 16, padding: "12px 16px", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 10, fontSize: 13, color: "#b91c1c", lineHeight: 1.6 }}>
+            Please set the following {missing.length === 1 ? "scale" : "scales"} before continuing (click or drag each one, even if you want to leave it in the middle):
+            <ul style={{ margin: "6px 0 0", paddingLeft: 20 }}>
+              {missing.map(s => <li key={s.id} style={{ marginBottom: 2 }}>{s.label}</li>)}
+            </ul>
+          </div>
+        )}
+
+        <button onClick={() => { if (missing.length === 0) onComplete(responses); else setAttempted(true); }} data-track="survey_nasa_tlx_submit"
           style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: "#1e40af", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", marginTop: 8 }}>
           Next Survey →
         </button>
@@ -3801,10 +3819,13 @@ function FeedbackSurvey({ onComplete, onQuit }) {
     return r;
   });
 
-  const allAnswered = FEEDBACK_QUESTIONS.every(q => {
-    if (q.type === "open") return true; // optional
-    return responses[q.id] != null;
-  });
+  const [attempted, setAttempted] = useState(false);
+
+  const missing = FEEDBACK_QUESTIONS
+    .map((q, i) => ({ q, i }))
+    .filter(({ q }) => q.type !== "open" && responses[q.id] == null);
+  const allAnswered = missing.length === 0;
+  const labelFor = (q, i) => `Question ${i + 1}: ${q.text.length > 70 ? q.text.slice(0, 70) + "…" : q.text}`;
 
   return (
     <div style={{ fontFamily: "'IBM Plex Sans',system-ui,sans-serif", background: "linear-gradient(160deg,#f0f4ff 0%,#f8f9fb 40%,#faf5ff 100%)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 20px" }}>
@@ -3887,15 +3908,18 @@ function FeedbackSurvey({ onComplete, onQuit }) {
           </div>
         ))}
 
-        {!allAnswered && (
-          <div style={{ marginTop: 16, padding: 10, background: "#fef3c7", borderRadius: 8, fontSize: 12, color: "#92400e", textAlign: "center" }}>
-            Please answer all required questions before submitting.
+        {attempted && !allAnswered && (
+          <div style={{ marginTop: 16, padding: "12px 16px", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 10, fontSize: 13, color: "#b91c1c", lineHeight: 1.6 }}>
+            Please answer the following before submitting:
+            <ul style={{ margin: "6px 0 0", paddingLeft: 20 }}>
+              {missing.map(({ q, i }) => <li key={q.id} style={{ marginBottom: 2 }}>{labelFor(q, i)}</li>)}
+            </ul>
           </div>
         )}
 
-        <button onClick={() => { if (allAnswered) onComplete(responses); }} disabled={!allAnswered}
+        <button onClick={() => { if (allAnswered) onComplete(responses); else setAttempted(true); }}
           data-track="survey_feedback_submit"
-          style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: allAnswered ? "#1e40af" : "#94a3b8", color: "#fff", fontSize: 15, fontWeight: 700, cursor: allAnswered ? "pointer" : "not-allowed", marginTop: 20 }}>
+          style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: "#1e40af", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", marginTop: 20 }}>
           Next Survey →
         </button>
       </div>
@@ -3943,14 +3967,19 @@ function DemographicsSurvey({ onComplete, onQuit }) {
     return r;
   });
 
-  const allAnswered = DEMO_QUESTIONS.every(q => {
+  const [attempted, setAttempted] = useState(false);
+
+  const isAnswered = (q) => {
     if (!q.required) return true;
     if (q.type === "open") return (responses[q.id] || "").trim().length > 0;
     const val = responses[q.id];
     if (val === null) return false;
     if (val === "Other" && (otherText[q.id] || "").trim().length === 0) return false;
     return true;
-  });
+  };
+  const missing = DEMO_QUESTIONS.filter(q => !isAnswered(q));
+  const allAnswered = missing.length === 0;
+  const demoLabel = (q) => `${q.section ? q.section + " — " : ""}${q.text.length > 70 ? q.text.slice(0, 70) + "…" : q.text}`;
 
   let currentSection = "";
 
@@ -4046,15 +4075,18 @@ function DemographicsSurvey({ onComplete, onQuit }) {
           );
         })}
 
-        {!allAnswered && (
-          <div style={{ marginTop: 16, padding: 10, background: "#fef3c7", borderRadius: 8, fontSize: 12, color: "#92400e", textAlign: "center" }}>
-            Please answer all required questions before submitting.
+        {attempted && !allAnswered && (
+          <div style={{ marginTop: 16, padding: "12px 16px", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 10, fontSize: 13, color: "#b91c1c", lineHeight: 1.6 }}>
+            Please answer the following required {missing.length === 1 ? "question" : "questions"} before submitting:
+            <ul style={{ margin: "6px 0 0", paddingLeft: 20 }}>
+              {missing.map(q => <li key={q.id} style={{ marginBottom: 2 }}>{demoLabel(q)}</li>)}
+            </ul>
           </div>
         )}
 
-        <button onClick={() => { if (allAnswered) { const out = {}; DEMO_QUESTIONS.forEach(q => { if (q.type === "open") { out[q.id] = responses[q.id]; } else { out[q.id] = responses[q.id] === "Other" ? `Other: ${otherText[q.id]}` : responses[q.id]; } }); onComplete(out); } }} disabled={!allAnswered}
+        <button onClick={() => { if (allAnswered) { const out = {}; DEMO_QUESTIONS.forEach(q => { if (q.type === "open") { out[q.id] = responses[q.id]; } else { out[q.id] = responses[q.id] === "Other" ? `Other: ${otherText[q.id]}` : responses[q.id]; } }); onComplete(out); } else { setAttempted(true); } }}
           data-track="survey_demographics_submit"
-          style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: allAnswered ? "#059669" : "#94a3b8", color: "#fff", fontSize: 15, fontWeight: 700, cursor: allAnswered ? "pointer" : "not-allowed", marginTop: 20 }}>
+          style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: "#059669", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", marginTop: 20 }}>
           Submit &amp; Finish Study
         </button>
       </div>
@@ -4133,8 +4165,114 @@ function CompletionScreen({ status, onRetry }) {
   );
 }
 
+// ══════════════════════════════════════════
+//  SCREEN 0: IRB Consent Form (first page)
+// ══════════════════════════════════════════
+function ConsentScreen({ onConsent }) {
+  const [declined, setDeclined] = useState(false);
+
+  const H = ({ children }) => (
+    <h2 style={{ fontSize: 15, fontWeight: 700, color: "#1e293b", margin: "18px 0 6px" }}>{children}</h2>
+  );
+  const P = ({ children }) => (
+    <p style={{ fontSize: 13.5, color: "#374151", lineHeight: 1.7, margin: "0 0 8px" }}>{children}</p>
+  );
+
+  if (declined) {
+    return (
+      <div style={{ fontFamily: "'IBM Plex Sans',system-ui,sans-serif", background: "linear-gradient(160deg,#f0f4ff 0%,#f8f9fb 40%,#faf5ff 100%)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 32 }}>
+        <div style={{ maxWidth: 520, width: "100%", background: "#fff", borderRadius: 14, border: "1px solid #e5e7eb", padding: "28px 32px", boxShadow: "0 2px 12px rgba(0,0,0,.05)" }}>
+          <h1 style={{ fontSize: 20, fontWeight: 800, color: "#1e293b", marginTop: 0 }}>You have declined to participate</h1>
+          <p style={{ fontSize: 14, color: "#475569", lineHeight: 1.7 }}>
+            Thank you for your time. You have not consented to take part in this study, so it will not begin. You may now close this browser window.
+          </p>
+          <button onClick={() => setDeclined(false)}
+            style={{ marginTop: 8, padding: "10px 18px", borderRadius: 9, border: "1.5px solid #cbd5e1", background: "#f8fafc", color: "#334155", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>
+            ← Back to consent form
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ fontFamily: "'IBM Plex Sans',system-ui,sans-serif", background: "linear-gradient(160deg,#f0f4ff 0%,#f8f9fb 40%,#faf5ff 100%)", minHeight: "100vh", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 20px" }}>
+      <div style={{ maxWidth: 720, width: "100%", background: "#fff", borderRadius: 16, padding: "32px 40px 28px", boxShadow: "0 4px 24px rgba(0,0,0,.08)" }}>
+        <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, textTransform: "uppercase", letterSpacing: .5, marginBottom: 6 }}>Informed Consent</div>
+        <h1 style={{ fontSize: 24, fontWeight: 800, color: "#1e293b", marginTop: 0, marginBottom: 12 }}>Research Study Consent Form</h1>
+
+        <P>
+          We invite you to participate in a research study being conducted by investigators at Washington University in St. Louis.
+        </P>
+
+        <H>What is this study about?</H>
+        <P>
+          This study examines how people interact with data visualization when labeling features in line graphs. You will complete an online data-labeling task using an interactive web-based interface.
+        </P>
+
+        <H>What will I be asked to do?</H>
+        <P>If you choose to participate, you will:</P>
+        <ul style={{ fontSize: 13.5, color: "#374151", lineHeight: 1.7, margin: "0 0 8px", paddingLeft: 22 }}>
+          <li>View up to 36 time-series (line graph) charts</li>
+          <li>Identify and mark the beginning and end of visible peaks in each chart</li>
+          <li>Complete a short workload questionnaire (NASA-TLX)</li>
+          <li>Answer brief demographic and background questions</li>
+        </ul>
+        <P>
+          Depending on the version of the interface you are assigned, you may also see computer-generated suggestions, visual indicators of the computer&rsquo;s confidence, and/or short written explanations. You will always make the final decisions about your annotations.
+        </P>
+        <P>
+          The system will record your labeling decisions, time spent on each graph, interaction patterns (such as zooming and navigation), and your survey responses.
+        </P>
+
+        <H>How long will this take?</H>
+        <P>The study will take approximately 35 minutes to complete.</P>
+
+        <H>Will I be paid?</H>
+        <P>You will receive $12 for completing the study.</P>
+
+        <H>Are my responses confidential?</H>
+        <P>
+          Your responses are anonymous. The research team will not collect identifying information beyond what is required for compensation through the recruitment platform.
+        </P>
+
+        <H>Is participation voluntary?</H>
+        <P>
+          Yes. Participation is completely voluntary. You may stop participating at any time by closing your browser window, without penalty.
+        </P>
+
+        <H>Questions?</H>
+        <P>
+          If you have any questions about the research study itself, please contact Caitlin Johnson at{" "}
+          <a href="mailto:jcaitlin@wustl.edu" style={{ color: "#1e40af", fontWeight: 600, textDecoration: "none" }}>jcaitlin@wustl.edu</a>. If you have questions, concerns, or complaints about your rights as a research participant, please contact the Human Research Protection Office at 1-(800)-438-0445 or email{" "}
+          <a href="mailto:hrpo@wustl.edu" style={{ color: "#1e40af", fontWeight: 600, textDecoration: "none" }}>hrpo@wustl.edu</a>.
+        </P>
+
+        <P>Thank you very much for your consideration of this research study.</P>
+
+        <div style={{ marginTop: 22, padding: "16px 18px", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 12 }}>
+          <p style={{ fontSize: 13.5, color: "#334155", lineHeight: 1.6, margin: "0 0 14px", fontWeight: 600 }}>
+            By clicking &ldquo;I agree to participate&rdquo; below, you confirm that you have read and understood the information above, that you are at least 18 years old, and that you voluntarily agree to take part in this study.
+          </p>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button onClick={onConsent} data-track="consent_agree"
+              style={{ flex: "1 1 240px", padding: "14px", borderRadius: 10, border: "none", background: "#1e40af", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 16px rgba(30,64,175,.3)" }}>
+              I agree to participate
+            </button>
+            <button onClick={() => setDeclined(true)} data-track="consent_decline"
+              style={{ flex: "0 1 200px", padding: "14px", borderRadius: 10, border: "1.5px solid #cbd5e1", background: "#fff", color: "#475569", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+              I do not agree
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Root ──
 export default function App() {
+  const [consented, setConsented] = useState(false);
   const [session, setSession] = useState(null);
 
   // Parse all URL params once on load
@@ -4153,6 +4291,10 @@ export default function App() {
     };
   }, []);
 
+  // The consent form is the first page of the study.
+  if (!consented) {
+    return <ConsentScreen onConsent={() => setConsented(true)} />;
+  }
   if (!session) {
     return (
       <WelcomeScreen
