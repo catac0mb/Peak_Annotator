@@ -4213,8 +4213,9 @@ function ConsentScreen({ onConsent }) {
         <H>What will I be asked to do?</H>
         <P>If you choose to participate, you will:</P>
         <ul style={{ fontSize: 13.5, color: "#374151", lineHeight: 1.7, margin: "0 0 8px", paddingLeft: 22 }}>
-          <li>View up to 36 time-series (line graph) charts</li>
+          <li>View up to 12 time-series (line graph) charts</li>
           <li>Identify and mark the beginning and end of visible peaks in each chart</li>
+          <li>Complete a short visualization literacy assessment (Mini-VLAT)</li>
           <li>Complete a short workload questionnaire (NASA-TLX)</li>
           <li>Answer brief demographic and background questions</li>
         </ul>
@@ -4226,10 +4227,10 @@ function ConsentScreen({ onConsent }) {
         </P>
 
         <H>How long will this take?</H>
-        <P>The study will take approximately 35 minutes to complete.</P>
+        <P>The study will take approximately 20 minutes to complete.</P>
 
         <H>Will I be paid?</H>
-        <P>You will receive $12 for completing the study.</P>
+        <P>You will receive $5 for completing the study, plus performance-based bonuses for correct annotations.</P>
 
         <H>Are my responses confidential?</H>
         <P>
@@ -4243,8 +4244,8 @@ function ConsentScreen({ onConsent }) {
 
         <H>Questions?</H>
         <P>
-          If you have any questions about the research study itself, please contact Caitlin Johnson at{" "}
-          <a href="mailto:jcaitlin@wustl.edu" style={{ color: "#1e40af", fontWeight: 600, textDecoration: "none" }}>jcaitlin@wustl.edu</a>. If you have questions, concerns, or complaints about your rights as a research participant, please contact the Human Research Protection Office at 1-(800)-438-0445 or email{" "}
+          If you have any questions about the research study itself, please contact Alvitta Ottley at{" "}
+          <a href="mailto:alvitta@wustl.edu" style={{ color: "#1e40af", fontWeight: 600, textDecoration: "none" }}>alvitta@wustl.edu</a>. If you have questions, concerns, or complaints about your rights as a research participant, please contact the Human Research Protection Office at 1-(800)-438-0445 or email{" "}
           <a href="mailto:hrpo@wustl.edu" style={{ color: "#1e40af", fontWeight: 600, textDecoration: "none" }}>hrpo@wustl.edu</a>.
         </P>
 
