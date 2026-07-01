@@ -1653,8 +1653,8 @@ function TutorialScreen({ vizMode, onDismiss }) {
                   const x0 = txScale(pk.userStart), x1 = txScale(pk.userEnd);
                   if (x1 < tpad.l || x0 > tpad.l + tPlotW) return null;
                   const sel = pk.id === tutSelectedId, hov = pk.id === tutHoveredId;
-                  const baseOpacity = sel ? 0.55 : hov ? 0.46 : 0.34;
-                  const strokeOpacity = sel ? 0.8 : hov ? 0.6 : 0.4;
+                  const baseOpacity = sel ? 0.82 : hov ? 0.72 : 0.62;
+                  const strokeOpacity = sel ? 1 : hov ? 0.9 : 0.8;
                   const areaPath = buildTutPeakAreaPath(pk);
                   return (
                     <g key={`fill${pk.id}`} style={{ cursor: "pointer", pointerEvents: "auto" }}
@@ -3303,8 +3303,8 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
               const x0 = fxScale(pk.userStart), x1 = fxScale(pk.userEnd);
               if (x1 < fpad.l || x0 > fpad.l + fplotW) return null;
               const sel = pk.id === selectedPeakId, hov = pk.id === hoveredPeakId;
-              const baseOpacity = sel ? 0.55 : hov ? 0.46 : 0.34;
-              const strokeOpacity = sel ? 0.8 : hov ? 0.6 : 0.4;
+              const baseOpacity = sel ? 0.82 : hov ? 0.72 : 0.62;
+              const strokeOpacity = sel ? 1 : hov ? 0.9 : 0.8;
               const areaPath = buildPeakAreaPath(pk);
               return (
                 <g key={`fill${pk.id}`}
