@@ -125,20 +125,21 @@ function downsample(data, max = 3000) {
   return data.filter((_, i) => i % step === 0);
 }
 
-// Colorblind-safe confidence color ramp: orange (low) → neutral → blue (high).
-// Blue vs. orange stays distinguishable under the common color-vision
-// deficiencies (deuteranopia / protanopia / tritanopia), unlike the old
-// red→green ramp. The midpoint is a medium neutral (not a light tint) so
-// mid-confidence peaks stay readable, and none of the three stops is very light.
-// The original power curve is kept so the high-confidence range is spread out
-// for finer differentiation.
+// Colorblind-safe confidence color ramp: orange (low) → magenta-purple → blue
+// (high). Blue vs. orange stays distinguishable under the common color-vision
+// deficiencies, and the ramp runs through a *saturated* magenta-purple middle
+// (not a gray) so (a) mid-confidence peaks read as a distinct color rather than
+// a muddy neutral, and (b) it can't be confused with the desaturated gray used
+// for user-added peaks. Luminance decreases monotonically low→high, so the
+// levels stay distinct by brightness too. The curve is milder than before so
+// adjacent confidence levels differ more across the whole range.
 const CONF_STOPS = [
-  [194, 94, 0],    // low  — orange  (#C25E00)
-  [125, 116, 128], // mid  — neutral (#7D7480)
-  [20, 95, 166],   // high — blue    (#145FA6)
+  [214, 96, 4],    // low  — orange         (#D66004)
+  [150, 52, 140],  // mid  — magenta-purple (#963C8C)
+  [22, 92, 172],   // high — blue           (#165CAC)
 ];
-const CONF_LOW = "rgb(194,94,0)", CONF_MID = "rgb(125,116,128)", CONF_HIGH = "rgb(20,95,166)";
-const confPos = c => Math.pow(Math.max(0, Math.min(1, c / 100)), 1.8);
+const CONF_LOW = "rgb(214,96,4)", CONF_MID = "rgb(150,52,140)", CONF_HIGH = "rgb(22,92,172)";
+const confPos = c => Math.pow(Math.max(0, Math.min(1, c / 100)), 1.3);
 const confRGB = c => {
   const p = confPos(c);
   const [a, b] = p < 0.5 ? [CONF_STOPS[0], CONF_STOPS[1]] : [CONF_STOPS[1], CONF_STOPS[2]];
@@ -1272,7 +1273,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
       if (vizMode !== "peaks_only") {
         allSteps.push({
           title: "Confidence Icons",
-          instruction: "Each AI-detected peak has a colored circle above it showing the algorithm's confidence in that detection:\n\n\u2022 Blue = high confidence (90\u2013100%)\n\u2022 Muted gray-purple = moderate confidence (40\u201369%)\n\u2022 Orange = low confidence (below 40%)\n\nLook at the practice chart: the peak at t\u22482.50 has 95% confidence, the peak at t\u22485.00 has 68%, and the detection at t\u22489.80 has only 28%. Low and moderate-confidence detections are the ones most likely to need your attention.",
+          instruction: "Each AI-detected peak has a colored circle above it showing the algorithm's confidence in that detection:\n\n\u2022 Blue = high confidence (90\u2013100%)\n\u2022 Purple = moderate confidence (40\u201369%)\n\u2022 Orange = low confidence (below 40%)\n\nLook at the practice chart: the peak at t\u22482.50 has 95% confidence, the peak at t\u22485.00 has 68%, and the detection at t\u22489.80 has only 28%. Low and moderate-confidence detections are the ones most likely to need your attention.",
           task: null,
           isDone: true,
           feedback: null,
@@ -1652,7 +1653,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
                   const x0 = txScale(pk.userStart), x1 = txScale(pk.userEnd);
                   if (x1 < tpad.l || x0 > tpad.l + tPlotW) return null;
                   const sel = pk.id === tutSelectedId, hov = pk.id === tutHoveredId;
-                  const baseOpacity = sel ? 0.45 : hov ? 0.38 : 0.25;
+                  const baseOpacity = sel ? 0.55 : hov ? 0.46 : 0.34;
                   const strokeOpacity = sel ? 0.8 : hov ? 0.6 : 0.4;
                   const areaPath = buildTutPeakAreaPath(pk);
                   return (
@@ -3302,7 +3303,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
               const x0 = fxScale(pk.userStart), x1 = fxScale(pk.userEnd);
               if (x1 < fpad.l || x0 > fpad.l + fplotW) return null;
               const sel = pk.id === selectedPeakId, hov = pk.id === hoveredPeakId;
-              const baseOpacity = sel ? 0.45 : hov ? 0.38 : 0.25;
+              const baseOpacity = sel ? 0.55 : hov ? 0.46 : 0.34;
               const strokeOpacity = sel ? 0.8 : hov ? 0.6 : 0.4;
               const areaPath = buildPeakAreaPath(pk);
               return (
