@@ -125,16 +125,31 @@ function downsample(data, max = 3000) {
   return data.filter((_, i) => i % step === 0);
 }
 
-// Nonlinear confidence color: stretches 70–100 range for more visible differentiation
-// Maps confidence 0–100 to hue 0–120 (red→green) with power curve
-const confHue = c => {
-  const t = Math.max(0, Math.min(1, c / 100));
-  // Power curve: exponent <1 compresses high end (more color variation near 100)
-  const curved = Math.pow(t, 1.8);
-  return curved * 120;
+// Colorblind-safe confidence color ramp: orange (low) → neutral → blue (high).
+// Blue vs. orange stays distinguishable under the common color-vision
+// deficiencies (deuteranopia / protanopia / tritanopia), unlike the old
+// red→green ramp. The midpoint is a medium neutral (not a light tint) so
+// mid-confidence peaks stay readable, and none of the three stops is very light.
+// The original power curve is kept so the high-confidence range is spread out
+// for finer differentiation.
+const CONF_STOPS = [
+  [194, 94, 0],    // low  — orange  (#C25E00)
+  [125, 116, 128], // mid  — neutral (#7D7480)
+  [20, 95, 166],   // high — blue    (#145FA6)
+];
+const CONF_LOW = "rgb(194,94,0)", CONF_MID = "rgb(125,116,128)", CONF_HIGH = "rgb(20,95,166)";
+const confPos = c => Math.pow(Math.max(0, Math.min(1, c / 100)), 1.8);
+const confRGB = c => {
+  const p = confPos(c);
+  const [a, b] = p < 0.5 ? [CONF_STOPS[0], CONF_STOPS[1]] : [CONF_STOPS[1], CONF_STOPS[2]];
+  const f = p < 0.5 ? p / 0.5 : (p - 0.5) / 0.5;
+  return [0, 1, 2].map(i => Math.round(a[i] + (b[i] - a[i]) * f));
 };
-const confColor = c => `hsl(${confHue(c)}, 75%, 38%)`;
-const confBg = c => `hsla(${confHue(c)}, 75%, 38%, 0.12)`;
+const confColor = c => { const [r, g, b] = confRGB(c); return `rgb(${r},${g},${b})`; };
+const confBg = c => { const [r, g, b] = confRGB(c); return `rgba(${r},${g},${b},0.12)`; };
+const confRGBA = (c, a) => { const [r, g, b] = confRGB(c); return `rgba(${r},${g},${b},${a})`; };
+// A darkened variant for stroking filled peak areas, so edges stay crisp.
+const confStrokeRGBA = (c, a) => { const [r, g, b] = confRGB(c); return `rgba(${Math.round(r * 0.7)},${Math.round(g * 0.7)},${Math.round(b * 0.7)},${a})`; };
 const fmt = n => n == null ? "—" : Math.abs(n) >= 100 ? n.toFixed(1) : Math.abs(n) >= 10 ? n.toFixed(2) : n.toFixed(3);
 // Axis-tick formatter whose precision adapts to the visible range, so a zoomed
 // y-axis (small values) doesn't collapse every tick to the same rounded label.
@@ -194,7 +209,7 @@ function ThresholdBar({ label, pct, width: barWidth = 180 }) {
     <div style={{ marginBottom: 4 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
         <span style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "capitalize" }}>{label}</span>
-        <span style={{ fontSize: 9, fontWeight: 600, color: isAbove ? "#059669" : "#dc2626" }}>
+        <span style={{ fontSize: 9, fontWeight: 600, color: isAbove ? CONF_HIGH : CONF_LOW }}>
           {absVal > 200 ? ">200%" : `${absVal.toFixed(1)}%`} {isAbove ? "above" : "below"}
         </span>
       </div>
@@ -204,18 +219,18 @@ function ThresholdBar({ label, pct, width: barWidth = 180 }) {
         {/* Background bar */}
         <rect x={0} y={16} width={barWidth} height={4} rx={2} fill="#e5e7eb" />
         {/* Left half tint (below) */}
-        <rect x={0} y={16} width={mid} height={4} rx={2} fill="#fef2f2" style={{ clipPath: `inset(0 ${barWidth - mid}px 0 0)` }} />
+        <rect x={0} y={16} width={mid} height={4} rx={2} fill="rgba(194,94,0,0.10)" style={{ clipPath: `inset(0 ${barWidth - mid}px 0 0)` }} />
         {/* Right half tint (above) */}
-        <rect x={mid} y={16} width={mid} height={4} fill="#f0fdf4" />
+        <rect x={mid} y={16} width={mid} height={4} fill="rgba(20,95,166,0.10)" />
         {/* Center tick = threshold */}
         <line x1={mid} y1={10} x2={mid} y2={24} stroke="#64748b" strokeWidth={2} />
         {/* Connecting line from center to icon */}
-        <line x1={mid} y1={18} x2={iconX} y2={18} stroke={isAbove ? "#059669" : "#dc2626"} strokeWidth={2} />
+        <line x1={mid} y1={18} x2={iconX} y2={18} stroke={isAbove ? CONF_HIGH : CONF_LOW} strokeWidth={2} />
         {/* Icon at the value position */}
-        <circle cx={iconX} cy={18} r={4} fill={isAbove ? "#059669" : "#dc2626"} stroke="#fff" strokeWidth={1} />
+        <circle cx={iconX} cy={18} r={4} fill={isAbove ? CONF_HIGH : CONF_LOW} stroke="#fff" strokeWidth={1} />
         {/* Overflow arrows for clamped values */}
-        {pct > 200 && <polygon points={`${barWidth - 1},15 ${barWidth - 1},21 ${barWidth + 4},18`} fill="#059669" />}
-        {pct < -200 && <polygon points={`1,15 1,21 -4,18`} fill="#dc2626" />}
+        {pct > 200 && <polygon points={`${barWidth - 1},15 ${barWidth - 1},21 ${barWidth + 4},18`} fill={CONF_HIGH} />}
+        {pct < -200 && <polygon points={`1,15 1,21 -4,18`} fill={CONF_LOW} />}
       </svg>
     </div>
   );
@@ -1257,7 +1272,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
       if (vizMode !== "peaks_only") {
         allSteps.push({
           title: "Confidence Icons",
-          instruction: "Each AI-detected peak has a colored circle above it showing the algorithm's confidence in that detection:\n\n\u2022 Deep green = very high confidence (90\u2013100%)\n\u2022 Yellow/orange = moderate confidence (40\u201369%)\n\u2022 Red = low confidence (below 40%)\n\nLook at the practice chart: the peak at t\u22482.50 has 95% confidence, the peak at t\u22485.00 has 68%, and the detection at t\u22489.80 has only 28%. Low and moderate-confidence detections are the ones most likely to need your attention.",
+          instruction: "Each AI-detected peak has a colored circle above it showing the algorithm's confidence in that detection:\n\n\u2022 Blue = high confidence (90\u2013100%)\n\u2022 Muted gray-purple = moderate confidence (40\u201369%)\n\u2022 Orange = low confidence (below 40%)\n\nLook at the practice chart: the peak at t\u22482.50 has 95% confidence, the peak at t\u22485.00 has 68%, and the detection at t\u22489.80 has only 28%. Low and moderate-confidence detections are the ones most likely to need your attention.",
           task: null,
           isDone: true,
           feedback: null,
@@ -1576,7 +1591,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
             End boundary
           </span>
           <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ width: 48, height: 10, borderRadius: 5, background: "linear-gradient(90deg,hsl(0,75%,38%),hsl(60,75%,38%),hsl(120,75%,38%))", display: "inline-block" }} />
+            <span style={{ width: 48, height: 10, borderRadius: 5, background: `linear-gradient(90deg,${CONF_LOW},${CONF_MID},${CONF_HIGH})`, display: "inline-block" }} />
             AI Confidence (low → high)
           </span>
           <span style={{ color: "#94a3b8" }}>· Click a badge on the chart or a pill below to select · Drag handles to adjust · Scroll to zoom · Drag chart to pan</span>
@@ -1637,7 +1652,6 @@ function TutorialScreen({ vizMode, onDismiss }) {
                   const x0 = txScale(pk.userStart), x1 = txScale(pk.userEnd);
                   if (x1 < tpad.l || x0 > tpad.l + tPlotW) return null;
                   const sel = pk.id === tutSelectedId, hov = pk.id === tutHoveredId;
-                  const hue = confHue(pk.confidence);
                   const baseOpacity = sel ? 0.45 : hov ? 0.38 : 0.25;
                   const strokeOpacity = sel ? 0.8 : hov ? 0.6 : 0.4;
                   const areaPath = buildTutPeakAreaPath(pk);
@@ -1645,8 +1659,8 @@ function TutorialScreen({ vizMode, onDismiss }) {
                     <g key={`fill${pk.id}`} style={{ cursor: "pointer", pointerEvents: "auto" }}
                       onPointerEnter={() => setTutHoveredId(pk.id)} onPointerLeave={() => setTutHoveredId(null)}
                       onClick={e => { e.stopPropagation(); setTutSelectedId(pk.id === tutSelectedId ? null : pk.id); setHasSelectedPeak(true); }}>
-                      <path d={areaPath} clipPath="url(#tPlotClip)" fill={`hsla(${hue},75%,45%,${baseOpacity})`}
-                        stroke={`hsla(${hue},75%,35%,${strokeOpacity})`} strokeWidth={sel ? 1.5 : 1}
+                      <path d={areaPath} clipPath="url(#tPlotClip)" fill={confRGBA(pk.confidence, baseOpacity)}
+                        stroke={confStrokeRGBA(pk.confidence, strokeOpacity)} strokeWidth={sel ? 1.5 : 1}
                         style={{ pointerEvents: "visible" }} />
                     </g>
                   );
@@ -3215,15 +3229,15 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
               <svg width={48} height={14}>
                 <defs>
                   <linearGradient id="conf-grad-legend" x1="0" x2="1" y1="0" y2="0">
-                    <stop offset="0%" stopColor="hsl(0,75%,38%)" stopOpacity="0.35" />
-                    <stop offset="50%" stopColor="hsl(60,75%,38%)" stopOpacity="0.35" />
-                    <stop offset="100%" stopColor="hsl(120,75%,38%)" stopOpacity="0.35" />
+                    <stop offset="0%" stopColor={CONF_LOW} stopOpacity="0.45" />
+                    <stop offset="50%" stopColor={CONF_MID} stopOpacity="0.45" />
+                    <stop offset="100%" stopColor={CONF_HIGH} stopOpacity="0.45" />
                   </linearGradient>
                 </defs>
-                <rect x={0} y={2} width={48} height={10} rx={3} fill="url(#conf-grad-legend)" stroke="hsl(60,75%,38%)" strokeWidth={0.5} />
+                <rect x={0} y={2} width={48} height={10} rx={3} fill="url(#conf-grad-legend)" stroke={CONF_MID} strokeWidth={0.5} />
               </svg>
             ) : (
-              <span style={{ width: 48, height: 10, borderRadius: 5, background: "linear-gradient(90deg,hsl(0,75%,38%),hsl(60,75%,38%),hsl(120,75%,38%))", display: "inline-block" }} />
+              <span style={{ width: 48, height: 10, borderRadius: 5, background: `linear-gradient(90deg,${CONF_LOW},${CONF_MID},${CONF_HIGH})`, display: "inline-block" }} />
             )}
             AI Confidence (low → high)
           </span>
@@ -3288,7 +3302,6 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
               const x0 = fxScale(pk.userStart), x1 = fxScale(pk.userEnd);
               if (x1 < fpad.l || x0 > fpad.l + fplotW) return null;
               const sel = pk.id === selectedPeakId, hov = pk.id === hoveredPeakId;
-              const hue = confHue(pk.confidence);
               const baseOpacity = sel ? 0.45 : hov ? 0.38 : 0.25;
               const strokeOpacity = sel ? 0.8 : hov ? 0.6 : 0.4;
               const areaPath = buildPeakAreaPath(pk);
@@ -3300,8 +3313,8 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
                   onClick={e => { e.stopPropagation(); endHover(true); setSelectedPeakId(pk.id === selectedPeakId ? null : pk.id); logEdit("select_peak", pk.id, { via: "fill", confidence: pk.confidence, start: pk.userStart, apex: pk.userApex, end: pk.userEnd }); }}>
                   <path d={areaPath}
                     clipPath="url(#fPlotClip)"
-                    fill={`hsla(${hue},75%,45%,${baseOpacity})`}
-                    stroke={`hsla(${hue},75%,35%,${strokeOpacity})`}
+                    fill={confRGBA(pk.confidence, baseOpacity)}
+                    stroke={confStrokeRGBA(pk.confidence, strokeOpacity)}
                     strokeWidth={sel ? 1.5 : 1}
                     style={{ pointerEvents: "visible" }} />
                 </g>
