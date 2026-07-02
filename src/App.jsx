@@ -157,7 +157,23 @@ const CONF_LOW = "rgb(252,141,89)", CONF_HIGH = "rgb(145,191,219)";
 // The single confidence color, everywhere (near-opaque fill appearance on white).
 const confChip = c => blendWhite(confRGB(c), CONF_FILL_A);
 // Dark, same-hue variant for text/numbers/thin marks that need contrast.
-const confInk = c => { const [r, g, b] = confRGB(c); return `rgb(${Math.round(r * 0.5)},${Math.round(g * 0.5)},${Math.round(b * 0.5)})`; };
+// Darkens by lowering LIGHTNESS (in HSL) while keeping hue + saturation, so the
+// orange stays clearly orange and the blue clearly blue (a flat RGB multiply
+// would muddy them into brown / slate-gray).
+const confInk = c => {
+  let [r, g, b] = confRGB(c).map(v => v / 255);
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b); let h = 0, s = 0, l = (mx + mn) / 2;
+  if (mx !== mn) {
+    const d = mx - mn; s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+    h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    h /= 6;
+  }
+  l = 0.38; s = Math.min(1, s + 0.08); // darken for legibility, keep the hue vivid
+  const h2 = (p, q, t) => { if (t < 0) t += 1; if (t > 1) t -= 1; if (t < 1 / 6) return p + (q - p) * 6 * t; if (t < 1 / 2) return q; if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6; return p; };
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+  const R = h2(p, q, h + 1 / 3), G = h2(p, q, h), B = h2(p, q, h - 1 / 3);
+  return `rgb(${Math.round(R * 255)},${Math.round(G * 255)},${Math.round(B * 255)})`;
+};
 const confColor = c => confChip(c);  // dots / badge fills / chips
 const confBg = c => confChip(c);      // pill / badge background (same color)
 const confRGBA = (c, a) => { const [r, g, b] = confRGB(c); return `rgba(${r},${g},${b},${a})`; };
@@ -1322,7 +1338,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
         });
         allSteps.push({
           title: "Reading the Threshold Bars",
-          instruction: "The peak list is at the bottom of the screen. When you click a peak in that list, a panel appears in the bottom right of the screen showing five horizontal bars \u2014 one for each criterion above. You may need to scroll down to see these bars.\n\nHow the bars work: the AI algorithm was calibrated on data, and that calibration set a detection threshold for each of the five criteria \u2014 essentially the value a feature must reach for the algorithm to treat it as a peak. The tick mark in the centre of each bar marks that calibrated threshold (the AI parameter for that criterion). Each bar then shows the distance between this particular detected peak\'s own measured quality \u2014 its actual prominence, width, height, S/N, and area \u2014 and the calibrated AI parameter:\n\n\u2022 Green dot to the right \u2192 the peak\'s value is above the threshold \u2014 this criterion supports the detection. The further right, the larger the margin above the AI parameter.\n\u2022 Red dot to the left \u2192 the peak\'s value is below the threshold \u2014 this criterion weakens the detection. The further left, the further the peak falls short of the AI parameter.\n\nKey insight: a detection whose dots sit far to the right on all five bars clears the calibrated thresholds comfortably and is more likely to be a real chromatographic peak. A detection with several dots near the centre or to the left only barely meets (or misses) the AI\'s parameters and is borderline \u2014 look at the signal carefully before accepting it.\n\nLook at the detection at t\u22489.80 \u2014 its S/N and Area bars sit to the left of centre (below threshold), meaning those measured qualities fall short of the calibrated parameters. The algorithm flagged it, but the evidence is weak \u2014 it is likely just baseline noise.\n\nTry clicking on peaks in the peak list at the bottom to see their bars.",
+          instruction: "The peak list is at the bottom of the screen. When you click a peak in that list, a panel appears in the bottom right of the screen showing five horizontal bars \u2014 one for each criterion above. You may need to scroll down to see these bars.\n\nHow the bars work: the AI algorithm was calibrated on data, and that calibration set a detection threshold for each of the five criteria \u2014 essentially the value a feature must reach for the algorithm to treat it as a peak. The tick mark in the centre of each bar marks that calibrated threshold (the AI parameter for that criterion). Each bar then shows the distance between this particular detected peak\'s own measured quality \u2014 its actual prominence, width, height, S/N, and area \u2014 and the calibrated AI parameter:\n\n\u2022 Blue dot to the right \u2192 the peak\'s value is above the threshold \u2014 this criterion supports the detection. The further right, the larger the margin above the AI parameter.\n\u2022 Orange dot to the left \u2192 the peak\'s value is below the threshold \u2014 this criterion weakens the detection. The further left, the further the peak falls short of the AI parameter.\n\nKey insight: a detection whose dots sit far to the right on all five bars clears the calibrated thresholds comfortably and is more likely to be a real chromatographic peak. A detection with several dots near the centre or to the left only barely meets (or misses) the AI\'s parameters and is borderline \u2014 look at the signal carefully before accepting it.\n\nLook at the detection at t\u22489.80 \u2014 its S/N and Area bars sit to the left of centre (below threshold), meaning those measured qualities fall short of the calibrated parameters. The algorithm flagged it, but the evidence is weak \u2014 it is likely just baseline noise.\n\nTry clicking on peaks in the peak list at the bottom to see their bars.",
           task: "Click on a peak to see its threshold bars",
           isDone: hasSelectedPeak,
           feedback: null,
