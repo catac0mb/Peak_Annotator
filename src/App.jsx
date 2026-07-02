@@ -133,24 +133,35 @@ function downsample(data, max = 3000) {
 // for user-added peaks. Luminance decreases monotonically low→high, so the
 // levels stay distinct by brightness too. The curve is milder than before so
 // adjacent confidence levels differ more across the whole range.
+// Two-color confidence gradient — no midpoint. Low = orange #fc8d59,
+// high = blue #91bfdb (a colorblind-safe orange/blue pair). Peak areas are
+// filled semi-transparently at CONF_FILL_A, so on the white chart they read as
+// a lighter blend of these colors; CONF_LOW_FILL / CONF_HIGH_FILL are those
+// exact blends-over-white, used in the legends so the legend matches what the
+// peaks actually look like. The small confidence numbers/badges use a darkened
+// version of the same hue (confInk) since the raw pastels are too light to read.
 const CONF_STOPS = [
-  [214, 96, 4],    // low  — orange         (#D66004)
-  [150, 52, 140],  // mid  — magenta-purple (#963C8C)
-  [22, 92, 172],   // high — blue           (#165CAC)
+  [252, 141, 89],  // low  — #fc8d59
+  [145, 191, 219], // high — #91bfdb
 ];
-const CONF_LOW = "rgb(214,96,4)", CONF_MID = "rgb(150,52,140)", CONF_HIGH = "rgb(22,92,172)";
-const confPos = c => Math.pow(Math.max(0, Math.min(1, c / 100)), 1.3);
+const CONF_FILL_A = 0.62; // base (unselected) peak-fill opacity
+const confPos = c => Math.max(0, Math.min(1, c / 100));
 const confRGB = c => {
   const p = confPos(c);
-  const [a, b] = p < 0.5 ? [CONF_STOPS[0], CONF_STOPS[1]] : [CONF_STOPS[1], CONF_STOPS[2]];
-  const f = p < 0.5 ? p / 0.5 : (p - 0.5) / 0.5;
-  return [0, 1, 2].map(i => Math.round(a[i] + (b[i] - a[i]) * f));
+  const [a, b] = CONF_STOPS;
+  return [0, 1, 2].map(i => Math.round(a[i] + (b[i] - a[i]) * p));
 };
-const confColor = c => { const [r, g, b] = confRGB(c); return `rgb(${r},${g},${b})`; };
-const confBg = c => { const [r, g, b] = confRGB(c); return `rgba(${r},${g},${b},0.12)`; };
+const blendWhite = ([r, g, b], a) => `rgb(${Math.round(r * a + 255 * (1 - a))},${Math.round(g * a + 255 * (1 - a))},${Math.round(b * a + 255 * (1 - a))})`;
+const CONF_LOW = "rgb(252,141,89)", CONF_HIGH = "rgb(145,191,219)";
+const CONF_LOW_FILL = blendWhite(CONF_STOPS[0], CONF_FILL_A);   // apparent low-conf peak color
+const CONF_HIGH_FILL = blendWhite(CONF_STOPS[1], CONF_FILL_A);  // apparent high-conf peak color
+// Darkened, legible version of the same hue for text, numbers and thin strokes.
+const confColor = c => { const [r, g, b] = confRGB(c); return `rgb(${Math.round(r * 0.58)},${Math.round(g * 0.58)},${Math.round(b * 0.58)})`; };
+const confBg = c => { const [r, g, b] = confRGB(c); return `rgba(${r},${g},${b},0.18)`; };
 const confRGBA = (c, a) => { const [r, g, b] = confRGB(c); return `rgba(${r},${g},${b},${a})`; };
 // A darkened variant for stroking filled peak areas, so edges stay crisp.
-const confStrokeRGBA = (c, a) => { const [r, g, b] = confRGB(c); return `rgba(${Math.round(r * 0.7)},${Math.round(g * 0.7)},${Math.round(b * 0.7)},${a})`; };
+const confStrokeRGBA = (c, a) => { const [r, g, b] = confRGB(c); return `rgba(${Math.round(r * 0.68)},${Math.round(g * 0.68)},${Math.round(b * 0.68)},${a})`; };
+const CONF_LOW_INK = confColor(0), CONF_HIGH_INK = confColor(100); // legible dark orange / blue for thin marks
 const fmt = n => n == null ? "—" : Math.abs(n) >= 100 ? n.toFixed(1) : Math.abs(n) >= 10 ? n.toFixed(2) : n.toFixed(3);
 // Axis-tick formatter whose precision adapts to the visible range, so a zoomed
 // y-axis (small values) doesn't collapse every tick to the same rounded label.
@@ -210,7 +221,7 @@ function ThresholdBar({ label, pct, width: barWidth = 180 }) {
     <div style={{ marginBottom: 4 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
         <span style={{ fontSize: 9, fontWeight: 600, color: "#475569", textTransform: "capitalize" }}>{label}</span>
-        <span style={{ fontSize: 9, fontWeight: 600, color: isAbove ? CONF_HIGH : CONF_LOW }}>
+        <span style={{ fontSize: 9, fontWeight: 600, color: isAbove ? CONF_HIGH_INK : CONF_LOW_INK }}>
           {absVal > 200 ? ">200%" : `${absVal.toFixed(1)}%`} {isAbove ? "above" : "below"}
         </span>
       </div>
@@ -220,18 +231,18 @@ function ThresholdBar({ label, pct, width: barWidth = 180 }) {
         {/* Background bar */}
         <rect x={0} y={16} width={barWidth} height={4} rx={2} fill="#e5e7eb" />
         {/* Left half tint (below) */}
-        <rect x={0} y={16} width={mid} height={4} rx={2} fill="rgba(194,94,0,0.10)" style={{ clipPath: `inset(0 ${barWidth - mid}px 0 0)` }} />
+        <rect x={0} y={16} width={mid} height={4} rx={2} fill="rgba(252,141,89,0.16)" style={{ clipPath: `inset(0 ${barWidth - mid}px 0 0)` }} />
         {/* Right half tint (above) */}
-        <rect x={mid} y={16} width={mid} height={4} fill="rgba(20,95,166,0.10)" />
+        <rect x={mid} y={16} width={mid} height={4} fill="rgba(145,191,219,0.18)" />
         {/* Center tick = threshold */}
         <line x1={mid} y1={10} x2={mid} y2={24} stroke="#64748b" strokeWidth={2} />
         {/* Connecting line from center to icon */}
-        <line x1={mid} y1={18} x2={iconX} y2={18} stroke={isAbove ? CONF_HIGH : CONF_LOW} strokeWidth={2} />
+        <line x1={mid} y1={18} x2={iconX} y2={18} stroke={isAbove ? CONF_HIGH_INK : CONF_LOW_INK} strokeWidth={2} />
         {/* Icon at the value position */}
-        <circle cx={iconX} cy={18} r={4} fill={isAbove ? CONF_HIGH : CONF_LOW} stroke="#fff" strokeWidth={1} />
+        <circle cx={iconX} cy={18} r={4} fill={isAbove ? CONF_HIGH_INK : CONF_LOW_INK} stroke="#fff" strokeWidth={1} />
         {/* Overflow arrows for clamped values */}
-        {pct > 200 && <polygon points={`${barWidth - 1},15 ${barWidth - 1},21 ${barWidth + 4},18`} fill={CONF_HIGH} />}
-        {pct < -200 && <polygon points={`1,15 1,21 -4,18`} fill={CONF_LOW} />}
+        {pct > 200 && <polygon points={`${barWidth - 1},15 ${barWidth - 1},21 ${barWidth + 4},18`} fill={CONF_HIGH_INK} />}
+        {pct < -200 && <polygon points={`1,15 1,21 -4,18`} fill={CONF_LOW_INK} />}
       </svg>
     </div>
   );
@@ -1273,7 +1284,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
       if (vizMode !== "peaks_only") {
         allSteps.push({
           title: "Confidence Icons",
-          instruction: "Each AI-detected peak has a colored circle above it showing the algorithm's confidence in that detection:\n\n\u2022 Blue = high confidence (90\u2013100%)\n\u2022 Purple = moderate confidence (40\u201369%)\n\u2022 Orange = low confidence (below 40%)\n\nLook at the practice chart: the peak at t\u22482.50 has 95% confidence, the peak at t\u22485.00 has 68%, and the detection at t\u22489.80 has only 28%. Low and moderate-confidence detections are the ones most likely to need your attention.",
+          instruction: "Each AI-detected peak has a colored circle above it showing the algorithm's confidence in that detection:\n\n\u2022 Blue = high confidence\n\u2022 Orange = low confidence\n\nThe fill shades smoothly between the two: the bluer it is, the more confident the algorithm; the more orange, the less confident.\n\nLook at the practice chart: the peak at t\u22482.50 has 95% confidence, the peak at t\u22485.00 has 68%, and the detection at t\u22489.80 has only 28%. Low and moderate-confidence detections are the ones most likely to need your attention.",
           task: null,
           isDone: true,
           feedback: null,
@@ -1592,7 +1603,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
             End boundary
           </span>
           <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ width: 48, height: 10, borderRadius: 5, background: `linear-gradient(90deg,${CONF_LOW},${CONF_MID},${CONF_HIGH})`, display: "inline-block" }} />
+            <span style={{ width: 48, height: 10, borderRadius: 5, background: `linear-gradient(90deg,${CONF_LOW_FILL},${CONF_HIGH_FILL})`, display: "inline-block" }} />
             AI Confidence (low → high)
           </span>
           <span style={{ color: "#94a3b8" }}>· Click a badge on the chart or a pill below to select · Drag handles to adjust · Scroll to zoom · Drag chart to pan</span>
@@ -3230,15 +3241,14 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
               <svg width={48} height={14}>
                 <defs>
                   <linearGradient id="conf-grad-legend" x1="0" x2="1" y1="0" y2="0">
-                    <stop offset="0%" stopColor={CONF_LOW} stopOpacity="0.45" />
-                    <stop offset="50%" stopColor={CONF_MID} stopOpacity="0.45" />
-                    <stop offset="100%" stopColor={CONF_HIGH} stopOpacity="0.45" />
+                    <stop offset="0%" stopColor={CONF_LOW_FILL} />
+                    <stop offset="100%" stopColor={CONF_HIGH_FILL} />
                   </linearGradient>
                 </defs>
-                <rect x={0} y={2} width={48} height={10} rx={3} fill="url(#conf-grad-legend)" stroke={CONF_MID} strokeWidth={0.5} />
+                <rect x={0} y={2} width={48} height={10} rx={3} fill="url(#conf-grad-legend)" stroke="rgba(0,0,0,0.15)" strokeWidth={0.5} />
               </svg>
             ) : (
-              <span style={{ width: 48, height: 10, borderRadius: 5, background: `linear-gradient(90deg,${CONF_LOW},${CONF_MID},${CONF_HIGH})`, display: "inline-block" }} />
+              <span style={{ width: 48, height: 10, borderRadius: 5, background: `linear-gradient(90deg,${CONF_LOW_FILL},${CONF_HIGH_FILL})`, display: "inline-block" }} />
             )}
             AI Confidence (low → high)
           </span>
@@ -4241,9 +4251,8 @@ function ConsentScreen({ onConsent }) {
         <H>What will I be asked to do?</H>
         <P>If you choose to participate, you will:</P>
         <ul style={{ fontSize: 13.5, color: "#374151", lineHeight: 1.7, margin: "0 0 8px", paddingLeft: 22 }}>
-          <li>View up to 12 time-series (line graph) charts</li>
+          <li>View up to 32 time-series (line graph) charts</li>
           <li>Identify and mark the beginning and end of visible peaks in each chart</li>
-          <li>Complete a short visualization literacy assessment (Mini-VLAT)</li>
           <li>Complete a short workload questionnaire (NASA-TLX)</li>
           <li>Answer brief demographic and background questions</li>
         </ul>
@@ -4255,10 +4264,10 @@ function ConsentScreen({ onConsent }) {
         </P>
 
         <H>How long will this take?</H>
-        <P>The study will take approximately 20 minutes to complete.</P>
+        <P>The study will take approximately 35 minutes to complete.</P>
 
         <H>Will I be paid?</H>
-        <P>You will receive $5 for completing the study, plus performance-based bonuses for correct annotations.</P>
+        <P>You will receive $12 for completing the study.</P>
 
         <H>Are my responses confidential?</H>
         <P>
