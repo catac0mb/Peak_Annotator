@@ -135,16 +135,17 @@ function downsample(data, max = 3000) {
 // adjacent confidence levels differ more across the whole range.
 // Two-color confidence gradient — no midpoint. Low = orange #fc8d59,
 // high = blue #91bfdb (a colorblind-safe orange/blue pair). Peak areas are
-// filled semi-transparently at CONF_FILL_A, so on the white chart they read as
-// a lighter blend of these colors; CONF_LOW_FILL / CONF_HIGH_FILL are those
-// exact blends-over-white, used in the legends so the legend matches what the
-// peaks actually look like. The small confidence numbers/badges use a darkened
-// version of the same hue (confInk) since the raw pastels are too light to read.
+// filled NEAR-OPAQUE (CONF_FILL_A) so the colors stay saturated instead of
+// washing out to gray. There is ONE confidence color, confChip(c) — the fill as
+// it appears on the white chart — and it is used identically for the peak fills,
+// the legend swatches, the peak-list dots, the badges and the pills, so the
+// color is the same everywhere. Only the small numbers/labels that sit on top of
+// (or stand in for) a chip use dark ink so they stay legible.
 const CONF_STOPS = [
   [252, 141, 89],  // low  — #fc8d59
   [145, 191, 219], // high — #91bfdb
 ];
-const CONF_FILL_A = 0.62; // base (unselected) peak-fill opacity
+const CONF_FILL_A = 0.9; // peak-fill opacity (near-opaque → saturated, not muted)
 const confPos = c => Math.max(0, Math.min(1, c / 100));
 const confRGB = c => {
   const p = confPos(c);
@@ -153,15 +154,16 @@ const confRGB = c => {
 };
 const blendWhite = ([r, g, b], a) => `rgb(${Math.round(r * a + 255 * (1 - a))},${Math.round(g * a + 255 * (1 - a))},${Math.round(b * a + 255 * (1 - a))})`;
 const CONF_LOW = "rgb(252,141,89)", CONF_HIGH = "rgb(145,191,219)";
-const CONF_LOW_FILL = blendWhite(CONF_STOPS[0], CONF_FILL_A);   // apparent low-conf peak color
-const CONF_HIGH_FILL = blendWhite(CONF_STOPS[1], CONF_FILL_A);  // apparent high-conf peak color
-// Darkened, legible version of the same hue for text, numbers and thin strokes.
-const confColor = c => { const [r, g, b] = confRGB(c); return `rgb(${Math.round(r * 0.58)},${Math.round(g * 0.58)},${Math.round(b * 0.58)})`; };
-const confBg = c => { const [r, g, b] = confRGB(c); return `rgba(${r},${g},${b},0.18)`; };
+// The single confidence color, everywhere (near-opaque fill appearance on white).
+const confChip = c => blendWhite(confRGB(c), CONF_FILL_A);
+// Dark, same-hue variant for text/numbers/thin marks that need contrast.
+const confInk = c => { const [r, g, b] = confRGB(c); return `rgb(${Math.round(r * 0.5)},${Math.round(g * 0.5)},${Math.round(b * 0.5)})`; };
+const confColor = c => confChip(c);  // dots / badge fills / chips
+const confBg = c => confChip(c);      // pill / badge background (same color)
 const confRGBA = (c, a) => { const [r, g, b] = confRGB(c); return `rgba(${r},${g},${b},${a})`; };
-// A darkened variant for stroking filled peak areas, so edges stay crisp.
-const confStrokeRGBA = (c, a) => { const [r, g, b] = confRGB(c); return `rgba(${Math.round(r * 0.68)},${Math.round(g * 0.68)},${Math.round(b * 0.68)},${a})`; };
-const CONF_LOW_INK = confColor(0), CONF_HIGH_INK = confColor(100); // legible dark orange / blue for thin marks
+const confStrokeRGBA = (c, a) => { const [r, g, b] = confRGB(c); return `rgba(${Math.round(r * 0.62)},${Math.round(g * 0.62)},${Math.round(b * 0.62)},${a})`; };
+const CONF_LOW_FILL = confChip(0), CONF_HIGH_FILL = confChip(100);
+const CONF_LOW_INK = confInk(0), CONF_HIGH_INK = confInk(100); // legible dark orange / blue for thin marks
 const fmt = n => n == null ? "—" : Math.abs(n) >= 100 ? n.toFixed(1) : Math.abs(n) >= 10 ? n.toFixed(2) : n.toFixed(3);
 // Axis-tick formatter whose precision adapts to the visible range, so a zoomed
 // y-axis (small values) doesn't collapse every tick to the same rounded label.
@@ -1664,7 +1666,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
                   const x0 = txScale(pk.userStart), x1 = txScale(pk.userEnd);
                   if (x1 < tpad.l || x0 > tpad.l + tPlotW) return null;
                   const sel = pk.id === tutSelectedId, hov = pk.id === tutHoveredId;
-                  const baseOpacity = sel ? 0.82 : hov ? 0.72 : 0.62;
+                  const baseOpacity = sel ? 1 : hov ? 0.96 : 0.9;
                   const strokeOpacity = sel ? 1 : hov ? 0.9 : 0.8;
                   const areaPath = buildTutPeakAreaPath(pk);
                   return (
@@ -1743,9 +1745,9 @@ function TutorialScreen({ vizMode, onDismiss }) {
                         onPointerEnter={() => setTutHoveredId(pk.id)} onPointerLeave={() => setTutHoveredId(null)}
                         onClick={e => { e.stopPropagation(); setTutSelectedId(pk.id === tutSelectedId ? null : pk.id); setHasSelectedPeak(true); }}>
                         <rect x={aPx - 16} y={iconY - 10} width={32} height={20} rx={10}
-                          fill={sel ? confBg(pk.confidence) : "#fff"}
-                          stroke={confColor(pk.confidence)} strokeWidth={sel ? 2 : 1.5} />
-                        <text x={aPx} y={iconY + 4} textAnchor="middle" fontSize={10} fontWeight={700} fill={confColor(pk.confidence)}>{pk.confidence}</text>
+                          fill={confChip(pk.confidence)}
+                          stroke={confInk(pk.confidence)} strokeWidth={sel ? 2 : 1.5} />
+                        <text x={aPx} y={iconY + 4} textAnchor="middle" fontSize={10} fontWeight={700} fill="#1e293b">{pk.confidence}</text>
                       </g>
                     ) : showConf && isUserPk ? (
                       <g style={{ cursor: "pointer", pointerEvents: "auto" }}
@@ -1835,12 +1837,12 @@ function TutorialScreen({ vizMode, onDismiss }) {
                         onPointerLeave={() => setTutHoveredId(null)}
                         onClick={() => { const nextId = pk.id === tutSelectedId ? null : pk.id; setTutSelectedId(nextId); setHasSelectedPeak(true); if (nextId) { const mid = pk.userApex; const w = tutDomain[1] - tutDomain[0]; setTutDomain([mid - w/2, mid + w/2]); } }}>
                         {showConf && !isUserPk && pk.confidence != null && (
-                          <span style={{ width: 8, height: 8, borderRadius: "50%", background: confColor(pk.confidence), display: "inline-block", flexShrink: 0 }} />
+                          <span style={{ width: 9, height: 9, borderRadius: "50%", background: confColor(pk.confidence), border: `1.5px solid ${confInk(pk.confidence)}`, boxSizing: "border-box", display: "inline-block", flexShrink: 0 }} />
                         )}
                         {isUserPk && <span style={{ fontSize: 10, color: "#059669", fontWeight: 800 }}>+</span>}
                         <span style={{ fontSize: 12, fontWeight: sel ? 700 : 500, color: sel ? "#1e40af" : "#374151" }}>{tutPeakLabel.get(pk.id) || pk.label}</span>
                         {showConf && !isUserPk && pk.confidence != null && (
-                          <span style={{ fontSize: 10, fontWeight: 700, color: confColor(pk.confidence), background: confBg(pk.confidence), padding: "1px 5px", borderRadius: 6 }}>{pk.confidence}%</span>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: "#1e293b", background: confBg(pk.confidence), padding: "1px 5px", borderRadius: 6 }}>{pk.confidence}%</span>
                         )}
                         <span
                           onClick={e => { e.stopPropagation(); tutDeletePeak(pk.id); setHasDeletedPeak(true); }}
@@ -1875,7 +1877,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
                       <div>
                         <div style={{ fontSize: 13, fontWeight: 700, color: "#1e40af" }}>{tutPeakLabel.get(selPk.id) || selPk.label}</div>
                         {showConf && !selIsUser && selPk.confidence != null && (
-                          <div style={{ fontSize: 11, color: confColor(selPk.confidence), fontWeight: 600, marginTop: 2 }}>
+                          <div style={{ fontSize: 11, color: confInk(selPk.confidence), fontWeight: 600, marginTop: 2 }}>
                             AI Confidence: {selPk.confidence}% — {selPk.confidence >= 80 ? "Very likely a real peak" : selPk.confidence >= 50 ? "Possibly a real peak — check carefully" : "Borderline — check closely"}
                           </div>
                         )}
@@ -3313,7 +3315,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
               const x0 = fxScale(pk.userStart), x1 = fxScale(pk.userEnd);
               if (x1 < fpad.l || x0 > fpad.l + fplotW) return null;
               const sel = pk.id === selectedPeakId, hov = pk.id === hoveredPeakId;
-              const baseOpacity = sel ? 0.82 : hov ? 0.72 : 0.62;
+              const baseOpacity = sel ? 1 : hov ? 0.96 : 0.9;
               const strokeOpacity = sel ? 1 : hov ? 0.9 : 0.8;
               const areaPath = buildPeakAreaPath(pk);
               return (
@@ -3410,9 +3412,9 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
                     onPointerEnter={() => beginHover(pk.id)} onPointerLeave={() => endHover(false)}
                     onClick={e => { e.stopPropagation(); endHover(true); setSelectedPeakId(pk.id === selectedPeakId ? null : pk.id); logEdit("badge_click", pk.id, { via: "badge", confidence: pk.confidence, start: pk.userStart, apex: pk.userApex, end: pk.userEnd }); }}>
                     <rect x={aPx - 16} y={iconY - 10} width={32} height={20} rx={10}
-                      fill={sel ? confBg(pk.confidence) : "#fff"}
-                      stroke={confColor(pk.confidence)} strokeWidth={sel ? 2 : 1.5} />
-                    <text x={aPx} y={iconY + 4} textAnchor="middle" fontSize={10} fontWeight={700} fill={confColor(pk.confidence)}>{pk.confidence}</text>
+                      fill={confChip(pk.confidence)}
+                      stroke={confInk(pk.confidence)} strokeWidth={sel ? 2 : 1.5} />
+                    <text x={aPx} y={iconY + 4} textAnchor="middle" fontSize={10} fontWeight={700} fill="#1e293b">{pk.confidence}</text>
                   </g>
                 ) : showConf && isUserPk ? (
                   <g data-track="user_peak_icon" data-peak-id={pk.id}
@@ -3510,12 +3512,12 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
                     onPointerEnter={() => beginHover(pk.id)} onPointerLeave={() => endHover(false)}
                     onClick={() => { endHover(true); const nextId = pk.id === selectedPeakId ? null : pk.id; setSelectedPeakId(nextId); if (nextId) { const mid = pk.userApex; const w = domain[1] - domain[0]; setDomain([mid - w/2, mid + w/2]); } logEdit("select_peak", pk.id, { via: "pill", confidence: pk.confidence ?? null, start: pk.userStart, apex: pk.userApex, end: pk.userEnd }); }}>
                     {showConf && !isUserPk && pk.confidence != null && (
-                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: confColor(pk.confidence), display: "inline-block", flexShrink: 0 }} />
+                      <span style={{ width: 9, height: 9, borderRadius: "50%", background: confColor(pk.confidence), border: `1.5px solid ${confInk(pk.confidence)}`, boxSizing: "border-box", display: "inline-block", flexShrink: 0 }} />
                     )}
                     {isUserPk && <span style={{ fontSize: 10, color: "#059669", fontWeight: 800 }}>+</span>}
                     <span style={{ fontSize: 12, fontWeight: sel ? 700 : 500, color: sel ? "#1e40af" : "#374151" }}>{peakLabel.get(pk.id) || pk.label}</span>
                     {showConf && !isUserPk && pk.confidence != null && (
-                      <span style={{ fontSize: 10, fontWeight: 700, color: confColor(pk.confidence), background: confBg(pk.confidence), padding: "1px 5px", borderRadius: 6 }}>{pk.confidence}%</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: "#1e293b", background: confBg(pk.confidence), padding: "1px 5px", borderRadius: 6 }}>{pk.confidence}%</span>
                     )}
                     {/* X button to delete */}
                     <span
@@ -3567,7 +3569,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: "#1e40af" }}>{peakLabel.get(selPeak.id) || selPeak.label}</div>
                   {showConf && !selIsUserPeak && selPeak.confidence != null && (
-                    <div style={{ fontSize: 11, color: confColor(selPeak.confidence), fontWeight: 600, marginTop: 2 }}>
+                    <div style={{ fontSize: 11, color: confInk(selPeak.confidence), fontWeight: 600, marginTop: 2 }}>
                       AI Confidence: {selPeak.confidence}% — {selPeak.confidence >= 80 ? "Very likely a real peak" : selPeak.confidence >= 50 ? "Possibly a real peak — check carefully" : "Borderline — check closely before confirming"}
                     </div>
                   )}
