@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 // ── Firebase setup (outside component so it's only initialized once) ──
 const firebaseConfig = {
@@ -14,6 +14,93 @@ const firebaseConfig = {
 };
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
+
+// ── Size-safe upload (raw JSON, single doc when it fits, else split) ─────────
+// Firestore caps a single document at 1 MiB. Most sessions fit and are written
+// as ONE readable document — same shape as before: study_results/{id} with a
+// `data` field holding the full session object. A session too large to fit is
+// split into multiple raw-JSON "part" documents in the SAME study_results
+// collection (so the same security rule applies — no subcollection), followed by
+// a manifest document written last. Nothing is compressed; every part is a plain
+// slice of the JSON text and is human-readable in the Firestore console.
+//
+// Documents share the `study_results` collection and are told apart by `schema`:
+//   • "single-v1"  → one doc; the session is in its `data` field.
+//   • "part-v1"    → id `${sessionId}_part_NNNN`, holds `part` (a JSON slice).
+//   • "chunked-v1" → id `${sessionId}` (manifest); `totalParts` says how many
+//                    part docs to read (0000…), whose `part` strings, in order,
+//                    concatenate to the full JSON to JSON.parse.
+// Re-uploads reuse the same ids (setDoc), so Retry overwrites rather than
+// duplicating. The manifest/single doc is written last, so its presence with a
+// matching totalParts signals a complete upload.
+
+// Split a string into parts each ≤ maxBytes of UTF-8, never cutting a surrogate
+// pair, so every part is valid text that Firestore will store and that
+// re-concatenates to exactly the original string.
+function chunkByBytes(str, maxBytes) {
+  const enc = new TextEncoder();
+  const parts = [];
+  let start = 0;
+  while (start < str.length) {
+    let end = Math.min(str.length, start + maxBytes); // bytes ≥ chars, so this is an upper bound
+    const isLowSurrogate = i => { const c = str.charCodeAt(i); return c >= 0xDC00 && c <= 0xDFFF; };
+    if (end < str.length && isLowSurrogate(end)) end--;
+    while (end > start && enc.encode(str.slice(start, end)).length > maxBytes) {
+      end--;
+      if (end < str.length && isLowSurrogate(end)) end--;
+    }
+    parts.push(str.slice(start, end));
+    start = end;
+  }
+  return parts;
+}
+
+async function uploadStudyResult(exportObj, userName) {
+  const { _tracker, _uploadId, ...clean } = exportObj;
+  const json = JSON.stringify(clean);
+  const byteLength = new TextEncoder().encode(json).length;
+  const condition = clean.condition ?? clean.vizMode ?? null;
+
+  // Stable id so Retry overwrites the same docs instead of duplicating.
+  const sid = exportObj._uploadId || (exportObj._uploadId =
+    (typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}_${Math.random().toString(36).slice(2)}`));
+
+  const NATIVE_LIMIT = 500000; // ≤ this ⇒ one readable native-object document
+  const PART_BYTES  = 900000;  // max UTF-8 bytes of JSON text per part document
+
+  if (byteLength <= NATIVE_LIMIT) {
+    await setDoc(doc(db, "study_results", sid), {
+      schema: "single-v1",
+      submittedAt: new Date(),
+      userName: userName ?? null,
+      condition,
+      data: clean,
+    });
+    return sid;
+  }
+
+  // Too big for one document: write raw-JSON parts, then the manifest last.
+  const parts = chunkByBytes(json, PART_BYTES);
+  await Promise.all(parts.map((part, i) =>
+    setDoc(doc(db, "study_results", `${sid}_part_${String(i).padStart(4, "0")}`), {
+      schema: "part-v1",
+      sessionId: sid,
+      index: i,
+      part,
+    })
+  ));
+  await setDoc(doc(db, "study_results", sid), {
+    schema: "chunked-v1",
+    submittedAt: new Date(),
+    userName: userName ?? null,
+    condition,
+    totalParts: parts.length,
+    byteLength,
+  });
+  return sid;
+}
 
 // ── Parsers ──
 function parseCSV(text) {
@@ -2130,14 +2217,21 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
       T.lastActivityTime = Date.now();
       lastCursorPos.current = { x: e.clientX, y: e.clientY };
     };
+    // Sample the cursor once a second, and only when it actually moved since the
+    // last sample — this drops the long idle stretches (reading, thinking) that
+    // used to fill the log with thousands of identical points.
+    let lastSampledX = null, lastSampledY = null;
     cursorSampleTimerRef.current = setInterval(() => {
+      const cx = lastCursorPos.current.x, cy = lastCursorPos.current.y;
+      if (cx === lastSampledX && cy === lastSampledY) return;
+      lastSampledX = cx; lastSampledY = cy;
       T.cursorSampleLog.push({
         timeMs:   Date.now() - T.sessionStart,
         chromIdx: currentIdxRef.current,
-        screenX:  lastCursorPos.current.x,
-        screenY:  lastCursorPos.current.y,
+        screenX:  cx,
+        screenY:  cy,
       });
-    }, 500);
+    }, 1000);
 
     window.addEventListener("mousemove",  mousemove);
     window.addEventListener("scroll",     active, true);
@@ -2187,13 +2281,20 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
   }, [currentIdx]);
 
   // ── Periodic annotation snapshot (every 15 s) ──
+  const lastSnapKeyRef = useRef(null);
   useEffect(() => {
     const iv = setInterval(() => {
       const snap = (allAnnotations[currentIdx] || [])
         .filter(a => !a.deleted)
         .sort((a, b) => a.userApex - b.userApex)
         .map(a => ({ id: a.id, start: a.userStart, apex: a.userApex, end: a.userEnd, ...peakProvenance(a) }));
-      T.annotationSnapshots.push({ timeMs: Date.now() - T.sessionStart, chromIdx: currentIdx, peaks: snap });
+      // Only store a snapshot when the annotations actually changed since the
+      // last one — identical back-to-back 15 s snapshots were pure redundant bulk.
+      const key = currentIdx + "|" + JSON.stringify(snap);
+      if (key !== lastSnapKeyRef.current) {
+        lastSnapKeyRef.current = key;
+        T.annotationSnapshots.push({ timeMs: Date.now() - T.sessionStart, chromIdx: currentIdx, peaks: snap });
+      }
       setTick(t => t + 1);
     }, 15000);
     return () => clearInterval(iv);
@@ -2955,6 +3056,9 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
     return (e.clientX - r.left) * (FW / r.width);
   }, []);
 
+  // Zoom logging is coalesced per gesture (see fOnWheel) to keep the log small.
+  const zoomGestureRef = useRef(null);
+
   // Override original handlers to use full-width scales
   const fOnWheel = useCallback(e => {
     e.preventDefault();
@@ -2975,20 +3079,38 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
     // Re-fit the Y axis to the newly zoomed window (batched with setDomain in
     // the same event, so the chart re-renders once with both updated).
     setYRange(computeYFit(a, b));
-    // Log zoom event to interaction log
+    // Coalesce a burst of wheel ticks into ONE logged zoom entry (net
+    // before→after) once zooming settles (~220 ms idle). Wheel/trackpad zoom
+    // fires many events per second, so per-tick logging was the main cause of
+    // oversized uploads; this keeps the meaningful start/end (and a tick count)
+    // without the flood.
     const _zoomMs = Date.now() - T.sessionStart;
-    pushInteraction(T, "zoom", currentIdxRef.current, null, null, {
-      domainBefore: [domain[0], domain[1]],
-      domainAfter:  [a, b],
-      widthBefore:  w,
-      widthAfter:   nw,
-      anchorChartX: anchor,
-      direction:    e.deltaY > 0 ? "in" : "out",
-      timeMs:       _zoomMs,
-    });
-    T.zoomLog.push({ time: _zoomMs, chromIdx: currentIdxRef.current,
-      domainStart: a, domainEnd: b, width: nw,
-      direction: e.deltaY > 0 ? "in" : "out", anchorChartX: anchor });
+    if (!zoomGestureRef.current) {
+      zoomGestureRef.current = { startDomain: [domain[0], domain[1]], ticks: 0, timer: null };
+    }
+    const gz = zoomGestureRef.current;
+    gz.ticks++;
+    gz.endDomain = [a, b];
+    gz.endWidth = nw;
+    gz.direction = e.deltaY > 0 ? "in" : "out";
+    gz.anchor = anchor;
+    gz.endMs = _zoomMs;
+    gz.chromIdx = currentIdxRef.current;
+    clearTimeout(gz.timer);
+    gz.timer = setTimeout(() => {
+      const g = zoomGestureRef.current; if (!g) return;
+      zoomGestureRef.current = null;
+      pushInteraction(T, "zoom", g.chromIdx, null, null, {
+        domainBefore: g.startDomain,
+        domainAfter:  g.endDomain,
+        widthBefore:  g.startDomain[1] - g.startDomain[0],
+        widthAfter:   g.endWidth,
+        anchorChartX: g.anchor,
+        direction:    g.direction,
+        ticks:        g.ticks,
+        timeMs:       g.endMs,
+      });
+    }, 220);
   }, [domain, fxInv, xMax, xMin, computeYFit]);
 
   const fOnSvgPointerDown = useCallback(e => {
@@ -4443,12 +4565,7 @@ function StudyFlow({ session }) {
     finalResultsRef.current = partialExport;
     setUploadStatus("uploading");
     setPhase("complete");
-    const { _tracker: _qt, ...partialUploadData } = partialExport;
-    addDoc(collection(db, "study_results"), {
-      submittedAt: new Date(),
-      userName: session.userName,
-      data: partialUploadData,
-    })
+    uploadStudyResult(partialExport, session.userName)
       .then(() => setUploadStatus("success"))
       .catch(err => {
         console.error("Firebase upload failed (quit early):", err);
@@ -4563,12 +4680,7 @@ function StudyFlow({ session }) {
   const doUpload = useCallback(async (results) => {
     setUploadStatus("uploading");
     try {
-      const { _tracker: _ft, ...uploadData } = results;
-      await addDoc(collection(db, "study_results"), {
-        submittedAt: new Date(),
-        userName: session.userName,
-        data: uploadData,
-      });
+      await uploadStudyResult(results, session.userName);
       setUploadStatus("success");
     } catch (err) {
       console.error("Firebase upload failed:", err);
