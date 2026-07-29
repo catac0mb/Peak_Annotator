@@ -1045,7 +1045,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
   }, [step]);
 
   const activeTutPeaks = useMemo(() => tutAnnotations.filter(a => !a.deleted), [tutAnnotations]);
-  const showConf = isAICondition && vizMode !== "peaks_only";
+  const showConf = isAICondition && vizMode !== "peaks_only" && vizMode !== "bars_only";
 
   // Dynamic labels: sorted by apex time, so peak numbers update as peaks are added/deleted/moved
   const tutPeaksSorted = useMemo(() => [...activeTutPeaks].sort((a, b) => a.userApex - b.userApex), [activeTutPeaks]);
@@ -1386,7 +1386,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
       // ── AI CONDITIONS: review-focused flow ──
 
       // Confidence icons (only for conditions that show confidence)
-      if (vizMode !== "peaks_only") {
+      if (vizMode !== "peaks_only" && vizMode !== "bars_only") {
         allSteps.push({
           title: "Confidence Icons",
           instruction: "Each AI-detected peak has a colored circle above it showing the algorithm's confidence in that detection:\n\n\u2022 Blue = high confidence\n\u2022 Orange = low confidence\n\nThe fill shades smoothly between the two: the bluer it is, the more confident the algorithm; the more orange, the less confident.\n\nLook at the practice chart: the peak at t\u22482.50 has 95% confidence, the peak at t\u22485.00 has 68%, and the detection at t\u22489.80 has only 28%. Low and moderate-confidence detections are the ones most likely to need your attention.",
@@ -1415,7 +1415,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
           feedback: null,
         });
       }
-      if (vizMode === "threshold_bars") {
+      if (vizMode === "threshold_bars" || vizMode === "bars_only") {
         allSteps.push({
           title: "Understanding the Five Detection Criteria",
           instruction: "The AI peak-detection algorithm evaluates five properties of every feature of the data. Understanding these will help you assess whether a detection is real:\n\n\u2022 Prominence \u2014 How much a peak \u2018stands out\u2019 above surrounding signal. A prominent peak rises well above its neighbours; a low-prominence bump barely lifts above the baseline. High prominence strongly indicates a real peak.\n\n\u2022 Width \u2014 The horizontal span of the peak at half its height. Very narrow spikes are usually electrical noise or artefacts.\n\n\u2022 Height \u2014 The absolute signal intensity at the peak apex above the baseline. Too-small heights indicate the signal may not have risen meaningfully above background noise.\n\n\u2022 S/N \u2014 Signal-to-Noise Ratio. Measures how large the peak is compared to the random noise fluctuations in the surrounding baseline. A high S/N means the peak is unlikely to be explained by noise alone. Low S/N (e.g., below 2\u20133) suggests the \u2018peak\u2019 could simply be a noise spike.\n\n\u2022 Peak Area \u2014 The total area under the peak curve above the baseline. A real chromatographic peak has meaningful area; a narrow noise spike has near-zero area even if it looks tall.",
@@ -1454,7 +1454,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
       // Delete false positive (Peak 3 at t=9.8 is on a flat region — just noise)
       allSteps.push({
         title: "Deleting a False Detection",
-        instruction: "Look at the detection at t\u22489.80" + (vizMode !== "peaks_only" ? " (confidence: 28%)" : "") + " \u2014 it's located in a flat region of the chromatogram with no real signal, just baseline noise. The AI incorrectly flagged a small noise fluctuation as a peak.\n\nWhen you determine that an AI detection is not a real peak, you should delete it. You can delete a peak in two ways:\n\u2022 Click the red \u2715 button on the peak pill in the peak list at the bottom of the screen\n\u2022 Select the peak, then click the \u201cDelete Peak Annotation\u201d button in the action panel on the bottom right\n\nIf you accidentally delete a peak, it stays visible (grayed out) in the list \u2014 click it to restore it.",
+        instruction: "Look at the detection at t\u22489.80" + ((vizMode !== "peaks_only" && vizMode !== "bars_only") ? " (confidence: 28%)" : "") + " \u2014 it's located in a flat region of the chromatogram with no real signal, just baseline noise. The AI incorrectly flagged a small noise fluctuation as a peak.\n\nWhen you determine that an AI detection is not a real peak, you should delete it. You can delete a peak in two ways:\n\u2022 Click the red \u2715 button on the peak pill in the peak list at the bottom of the screen\n\u2022 Select the peak, then click the \u201cDelete Peak Annotation\u201d button in the action panel on the bottom right\n\nIf you accidentally delete a peak, it stays visible (grayed out) in the list \u2014 click it to restore it.",
         task: "Delete the false detection at t\u22489.80",
         isDone: falsePositiveDeleted,
         feedback: falsePositiveDeleted ? "Correct! You identified and removed the false detection from the flat baseline region." : "The false detection at t\u22489.80 is still present. Click the red \u2715 on its pill to delete it \u2014 notice how the signal there is flat with no real peak shape.",
@@ -1784,10 +1784,10 @@ function TutorialScreen({ vizMode, onDismiss }) {
                 })}
 
                 {/* Gray peak-area fills — user peaks in every condition, plus AI
-                    peaks in peaks_only (same neutral gray, no confidence color) */}
+                    peaks in peaks_only and bars_only (neutral gray, no confidence color) */}
                 {activeTutPeaks.map(pk => {
                   const isUser = pk.id.startsWith("user_");
-                  if (!isUser && vizMode !== "peaks_only") return null;
+                  if (!isUser && vizMode !== "peaks_only" && vizMode !== "bars_only") return null;
                   const x0 = txScale(pk.userStart), x1 = txScale(pk.userEnd);
                   if (x1 < tpad.l || x0 > tpad.l + tPlotW) return null;
                   const areaPath = buildTutPeakAreaPath(pk);
@@ -1932,7 +1932,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
                     const origIdx = TUTORIAL_PEAKS.findIndex(p => p.id === pk.id);
                     const ex = origIdx >= 0 ? TUTORIAL_EXPLANATIONS[origIdx] : null;
                     const txt = hasExplanation && ex ? (vizMode === "normal_explain" ? ex.feature : ex.counterfactual) : null;
-                    const tutThresholds = (vizMode === "threshold_bars" && ex) ? (ex.thresholds || parseThresholdPcts(ex.feature)) : null;
+                    const tutThresholds = ((vizMode === "threshold_bars" || vizMode === "bars_only") && ex) ? (ex.thresholds || parseThresholdPcts(ex.feature)) : null;
                     return (
                       <div key={pk.id}
                         style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "6px 10px 6px 12px", borderRadius: 20, background: chipBg, border: chipBorder, cursor: "pointer", transition: "all .12s" }}
@@ -1996,7 +1996,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
                     {(() => {
                       const origIdx = TUTORIAL_PEAKS.findIndex(p => p.id === selPk.id);
                       const ex = origIdx >= 0 ? TUTORIAL_EXPLANATIONS[origIdx] : null;
-                      const tutThresholds = vizMode === "threshold_bars" && ex ? (ex.thresholds || parseThresholdPcts(ex.feature)) : null;
+                      const tutThresholds = (vizMode === "threshold_bars" || vizMode === "bars_only") && ex ? (ex.thresholds || parseThresholdPcts(ex.feature)) : null;
                       const txt = hasExplanation && ex ? (vizMode === "normal_explain" ? ex.feature : ex.counterfactual) : null;
                       if (!tutThresholds && !txt) return null;
                       return (
@@ -2933,7 +2933,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
 
   // ── derived display flags ──────────────────────────────────────────────────
   // showConf: whether to show AI confidence icons/scores on the chart
-  const showConf = vizMode !== "none" && vizMode !== "no_ai" && vizMode !== "peaks_only";
+  const showConf = vizMode !== "none" && vizMode !== "no_ai" && vizMode !== "peaks_only" && vizMode !== "bars_only";
   // isAICondition: whether AI peaks are pre-loaded (includes peaks_only)
   const isAICondition = vizMode !== "none" && vizMode !== "no_ai";
   const isLastChrom = currentIdx === datasets.length - 1;
@@ -2948,7 +2948,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
   const selTxt  = selHasExplanation ? (selEx ? (vizMode === "normal_explain" ? selEx.feature : selEx.counterfactual) : "No explanation available.") : null;
   // For threshold_bars: use pre-parsed thresholds from JSON if available,
   // fall back to regex-parsing the feature explanation text.
-  const selThresholds = (vizMode === "threshold_bars" && selEx)
+  const selThresholds = ((vizMode === "threshold_bars" || vizMode === "bars_only") && selEx)
     ? (selEx.thresholds || parseThresholdPcts(selEx.feature))
     : null;
   const selIsUserPeak = selPeak?.id?.startsWith("user_");
@@ -3473,12 +3473,12 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
             })}
 
             {/* Gray peak-area fills. User-added peaks get the neutral gray fill
-                in every condition; in peaks_only (no confidence color shown) AI
-                peaks get the same gray fill too, so every peak's area is shaded
-                and AI/user peaks share one neutral color. */}
+                in every condition; in peaks_only and bars_only (no confidence
+                color shown) AI peaks get the same gray fill too, so every peak's
+                area is shaded and AI/user peaks share one neutral color. */}
             {fillMode && activePeaks.map(pk => {
               const isUser = pk.id.startsWith("user_");
-              if (!isUser && vizMode !== "peaks_only") return null;
+              if (!isUser && vizMode !== "peaks_only" && vizMode !== "bars_only") return null;
               const x0 = fxScale(pk.userStart), x1 = fxScale(pk.userEnd);
               if (x1 < fpad.l || x0 > fpad.l + fplotW) return null;
               const areaPath = buildPeakAreaPath(pk);
@@ -4456,7 +4456,7 @@ export default function App() {
   // Parse all URL params once on load
   const { prolificParams, urlCondition } = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
-    const VALID_CONDITIONS = ["no_ai", "peaks_only", "confidence", "threshold_bars"];
+    const VALID_CONDITIONS = ["no_ai", "peaks_only", "confidence", "threshold_bars", "bars_only"];
     const c = params.get("condition");
     return {
       prolificParams: {
