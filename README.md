@@ -55,27 +55,27 @@ If you are creating a new version of the repositiory, you may follow the steps b
 5. To create a production build for deployment: npm run build
 
 ### Usage
-There are no commands for running this website. It is deployed on github pages, and a workflow is automatically set up to apply new changes to the website once changes are pushed to github (see deploy.yml for the workflow file). To access the current visualization conditions, use the following links (if deploying on another repo, replace "catac0mb" with your username):
+There are no commands for running this website. It is deployed on github pages, and a workflow is automatically set up to apply new changes to the website once changes are pushed to github (see deploy.yml for the workflow file). To access the current visualization conditions, use the following links:
 
 Manual annotation:
 ```
-https://catac0mb.github.io/Peak_Annotator/?condition=no_ai
+https://washuvis.github.io/Peak_Annotator/?condition=no_ai
 ```
 Peak location suggestions only:
 ```
-https://catac0mb.github.io/Peak_Annotator/?condition=peaks_only
+https://washuvis.github.io/Peak_Annotator/?condition=peaks_only
 ```
 Peak location suggestions and confidence percentages:
 ```
-https://catac0mb.github.io/Peak_Annotator/?condition=confidence
+https://washuvis.github.io/Peak_Annotator/?condition=confidence
 ```
 Peak location suggestions and peak features:
 ```
-https://catac0mb.github.io/Peak_Annotator/?condition=bars_only
+https://washuvis.github.io/Peak_Annotator/?condition=bars_only
 ```
 Peak location suggestions, peak features, and confidence percentages:
 ```
-https://catac0mb.github.io/Peak_Annotator/?condition=threshold_bars
+https://washuvis.github.io/Peak_Annotator/?condition=threshold_bars
 ```
 
 ## Adding more datasets
