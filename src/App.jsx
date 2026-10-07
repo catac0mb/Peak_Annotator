@@ -352,6 +352,48 @@ function ThresholdBar({ label, pct, width: barWidth = 180 }) {
     </div>
   );
 }
+
+// ── Display toggle strip (user_toggle condition) ──
+// Two independent on/off switches: AI confidence and threshold bars. Used by
+// both the tutorial and the real annotation screen so they look identical.
+// `highlight` ("confidence" | "bars" | null) draws attention to one switch
+// during the tutorial step that teaches it.
+function ToggleSwitch({ label, sub, on, onClick, track, highlight }) {
+  return (
+    <button type="button" onClick={onClick} data-track={track} role="switch" aria-checked={on}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 9, padding: "6px 12px 6px 8px",
+        borderRadius: 999, cursor: "pointer", fontFamily: "inherit",
+        border: highlight ? "2px solid #f59e0b" : `1.5px solid ${on ? "#93c5fd" : "#d1d5db"}`,
+        background: on ? "#eff6ff" : "#fff",
+        boxShadow: highlight ? "0 0 0 4px rgba(245,158,11,.22)" : "none",
+        transition: "all .15s",
+      }}>
+      <span style={{ position: "relative", width: 34, height: 19, borderRadius: 999, background: on ? "#1e40af" : "#cbd5e1", flexShrink: 0, transition: "background .15s" }}>
+        <span style={{ position: "absolute", top: 2, left: on ? 17 : 2, width: 15, height: 15, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 2px rgba(0,0,0,.25)", transition: "left .15s" }} />
+      </span>
+      <span style={{ textAlign: "left", lineHeight: 1.15 }}>
+        <span style={{ display: "block", fontSize: 12, fontWeight: 700, color: on ? "#1e40af" : "#374151" }}>
+          {label} <span style={{ fontWeight: 600, color: on ? "#1e40af" : "#94a3b8" }}>· {on ? "On" : "Off"}</span>
+        </span>
+        {sub && <span style={{ display: "block", fontSize: 10, color: "#64748b" }}>{sub}</span>}
+      </span>
+    </button>
+  );
+}
+
+function DisplayToggleBar({ confOn, barsOn, onToggle, highlight = null, trackPrefix = "toggle" }) {
+  return (
+    <div style={{ background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "8px 20px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+      <span style={{ fontSize: 11, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: 0.4 }}>AI display options</span>
+      <ToggleSwitch label="AI confidence" sub="Colored badges & confidence scores"
+        on={confOn} onClick={() => onToggle("confidence")} track={`${trackPrefix}_confidence`} highlight={highlight === "confidence" || highlight === "both"} />
+      <ToggleSwitch label="Threshold bars" sub="Shown for the selected peak"
+        on={barsOn} onClick={() => onToggle("bars")} track={`${trackPrefix}_bars`} highlight={highlight === "bars" || highlight === "both"} />
+      <span style={{ fontSize: 11, color: "#94a3b8" }}>Turn either one on or off at any time.</span>
+    </div>
+  );
+}
 // accuracy metrics removed — recompute from raw logs externally
 
 // Recursively read all files from a dropped folder via File System Access API
@@ -570,6 +612,9 @@ function createTracker() {
     //   "badge_click"      — user clicked a confidence badge on the chart;
     //                        details: { peakId, confidence, start, apex, end }
     //   "skip_to_surveys"  — user clicked "skip to surveys" early-exit button
+    //   "show_confidence" / "hide_confidence" / "show_bars" / "hide_bars"
+    //                      — (user_toggle only) user flipped a display toggle;
+    //                        details: { feature, on, displayStateAfter: { confidence, bars } }
     //   "finish_chrom"     — user clicked "Finish & Start Next" or "Finish & Continue to Surveys";
     //                        details: { chromIdx, totalActiveMs, peakCountFinal }
     //   "chrom_start"      — user arrived on a chromatogram (first visit or revisit);
@@ -621,6 +666,11 @@ function createTracker() {
     // trajectory even if individual events were missed.
     // Each entry: { timeMs, chromIdx, peaks: [{ id, start, apex, end, isAIPeak }] }
     annotationSnapshots: [],
+
+    // ── Display toggles (user_toggle condition only) ──
+    // One entry per click on a display toggle switch.
+    // Each entry: { timeMs, chromIdx, feature: "confidence"|"bars", on, selectedPeakId }
+    displayToggleLog: [],
   };
 }
 
@@ -1007,6 +1057,24 @@ function TutorialScreen({ vizMode, onDismiss }) {
   const [completedSteps, setCompletedSteps] = useState(new Set());
 
   const isAICondition = vizMode !== "none" && vizMode !== "no_ai";
+  // user_toggle: confidence + threshold bars start hidden; the participant
+  // switches each one on/off individually with the display toggles.
+  const isToggleMode = vizMode === "user_toggle";
+  const [tutConfOn, setTutConfOn] = useState(false);
+  const [tutBarsOn, setTutBarsOn] = useState(false);
+  // Per-step toggle-action flags (reset on step change, like the others below)
+  const [confTurnedOn, setConfTurnedOn] = useState(false);
+  const [confTurnedOff, setConfTurnedOff] = useState(false);
+  const [barsTurnedOn, setBarsTurnedOn] = useState(false);
+  const [barsTurnedOff, setBarsTurnedOff] = useState(false);
+  const [selectedWithBars, setSelectedWithBars] = useState(false);
+  const tutToggle = useCallback((feature) => {
+    if (feature === "confidence") {
+      setTutConfOn(prev => { const next = !prev; if (next) setConfTurnedOn(true); else setConfTurnedOff(true); return next; });
+    } else {
+      setTutBarsOn(prev => { const next = !prev; if (next) setBarsTurnedOn(true); else setBarsTurnedOff(true); return next; });
+    }
+  }, []);
 
   // Tutorial chart state
   const tutData = useMemo(() => generateTutorialData(), []);
@@ -1042,10 +1110,26 @@ function TutorialScreen({ vizMode, onDismiss }) {
     setHasAddedPeak(false);
     setHasDeletedPeak(false);
     setHasHoveredPeak(false);
+    setConfTurnedOn(false);
+    setConfTurnedOff(false);
+    setBarsTurnedOn(false);
+    setBarsTurnedOff(false);
+    setSelectedWithBars(false);
   }, [step]);
 
   const activeTutPeaks = useMemo(() => tutAnnotations.filter(a => !a.deleted), [tutAnnotations]);
-  const showConf = isAICondition && vizMode !== "peaks_only" && vizMode !== "bars_only";
+  const showConf = isToggleMode
+    ? tutConfOn
+    : isAICondition && vizMode !== "peaks_only" && vizMode !== "bars_only";
+  // Whether the threshold bars appear in the selected-peak panel
+  const showBars = isToggleMode
+    ? tutBarsOn
+    : vizMode === "threshold_bars" || vizMode === "bars_only";
+
+  // Bars step: count a peak selection only while the bars are switched on
+  useEffect(() => {
+    if (tutBarsOn && tutSelectedId && TUTORIAL_PEAKS.some(p => p.id === tutSelectedId)) setSelectedWithBars(true);
+  }, [tutBarsOn, tutSelectedId]);
 
   // Dynamic labels: sorted by apex time, so peak numbers update as peaks are added/deleted/moved
   const tutPeaksSorted = useMemo(() => [...activeTutPeaks].sort((a, b) => a.userApex - b.userApex), [activeTutPeaks]);
@@ -1349,7 +1433,9 @@ function TutorialScreen({ vizMode, onDismiss }) {
         title: "Welcome to the Study",
         instruction: vizMode === "peaks_only"
           ? "Welcome, and thank you for participating!\n\nIn this study, you will be shown chromatograms \u2014 graphs that display chemical signal intensity over time. An AI algorithm has already attempted to detect peaks and their boundaries in each chromatogram.\n\nYour job is to review each AI-detected peak region and decide:\n\u2022 Is this actually a real peak, or a false detection?\n\u2022 If it is real, are the detected start and end boundaries correct?\n\nYou may edit a peak's boundaries, delete false detections, or add peaks the AI missed. Below is a practice chromatogram \u2014 complete each step before beginning the real task."
-          : "Welcome, and thank you for participating!\n\nIn this study, you will be shown chromatograms \u2014 graphs that display chemical signal intensity over time. An AI algorithm has already attempted to detect peaks in each chromatogram.\n\nYour job is to review each AI-detected peak and decide:\n\u2022 Is this actually a real peak, or a false detection?\n\u2022 If it is a real peak, are the detected start and end boundaries correct?\n\nYou may edit a peak's boundaries if they are wrong, delete false detections, or add peaks the AI missed. Below is a practice chromatogram with 3 AI detections \u2014 one is intentionally wrong. Complete each step of this tutorial before beginning the real task. The tutorial will block you from progressing until you have completed the instructions for each step.",
+          : isToggleMode
+          ? "Welcome, and thank you for participating!\n\nIn this study, you will be shown chromatograms \u2014 graphs that display chemical signal intensity over time. An AI algorithm has already attempted to detect peaks and their boundaries in each chromatogram.\n\nYour job is to review each AI-detected peak and decide:\n\u2022 Is this actually a real peak, or a false detection?\n\u2022 If it is a real peak, are the detected start and end boundaries correct?\n\nAt first, the chart only shows WHERE the AI found peaks. Two extra pieces of AI information are available, and you can turn each one on or off whenever you like:\n\u2022 AI confidence \u2014 how sure the AI is about each detection\n\u2022 Threshold bars \u2014 how strongly each detection passed the AI's detection criteria\n\nThis tutorial will show you how to use both switches. Below is a practice chromatogram with 3 AI detections \u2014 one is intentionally wrong. The tutorial will block you from progressing until you have completed the instructions for each step."
+          :"Welcome, and thank you for participating!\n\nIn this study, you will be shown chromatograms \u2014 graphs that display chemical signal intensity over time. An AI algorithm has already attempted to detect peaks in each chromatogram.\n\nYour job is to review each AI-detected peak and decide:\n\u2022 Is this actually a real peak, or a false detection?\n\u2022 If it is a real peak, are the detected start and end boundaries correct?\n\nYou may edit a peak's boundaries if they are wrong, delete false detections, or add peaks the AI missed. Below is a practice chromatogram with 3 AI detections \u2014 one is intentionally wrong. Complete each step of this tutorial before beginning the real task. The tutorial will block you from progressing until you have completed the instructions for each step.",
         task: null,
         isDone: true,
         feedback: null,
@@ -1385,8 +1471,69 @@ function TutorialScreen({ vizMode, onDismiss }) {
     if (isAICondition) {
       // ── AI CONDITIONS: review-focused flow ──
 
+      // ── user_toggle: markers first, then each display switch individually ──
+      if (isToggleMode) {
+        allSteps.push({
+          title: "Peak Location Markers",
+          instruction: "Right now the chart shows only where the AI detected peaks:\n\n• Each AI detection has a small “P” marker above its apex\n• The area of each detected peak is shaded gray\n• Each detection also has a pill in the peak list at the bottom of the screen\n\nThis is how every chromatogram starts. Just above the chart you’ll see the AI DISPLAY OPTIONS bar with two switches — “AI confidence” and “Threshold bars”. Both start Off. They are independent: you can turn on neither, either one, or both, and change them whenever you like. Your choice stays in place when you move to the next chromatogram.\n\nThe next steps show you how each switch works.",
+          task: null,
+          isDone: true,
+          feedback: null,
+          highlightToggle: null,
+        });
+        allSteps.push({
+          title: "Turning AI Confidence On and Off",
+          instruction: "Click the “AI confidence” switch in the AI DISPLAY OPTIONS bar above the chart to turn it on.\n\nWhen it is On, each AI detection is colored by the algorithm’s confidence, and a badge with its confidence score appears above it (and in its pill):\n• Blue = high confidence\n• Orange = low confidence\nThe color shades smoothly between the two: the bluer, the more confident; the more orange, the less confident.\n\nOn the practice chart, the peak at t≈2.50 has 95% confidence, the peak at t≈5.00 has 68%, and the detection at t≈9.80 has only 28%.\n\nClick the same switch again to turn the confidence display off — the chart goes back to plain location markers. Turning confidence on or off does not change the threshold bars.",
+          task: "Turn AI confidence ON, then turn it OFF again",
+          isDone: confTurnedOn && confTurnedOff,
+          feedback: !confTurnedOn
+            ? "Click the “AI confidence” switch above the chart to turn it on."
+            : !confTurnedOff
+            ? (tutConfOn ? "AI confidence is ON — notice the colored badges and scores. Now click the switch again to turn it off." : "Click the “AI confidence” switch once more.")
+            : "You turned AI confidence on and off. You can use this switch at any time.",
+          feedbackOk: confTurnedOn && confTurnedOff,
+          highlightToggle: "confidence",
+        });
+        allSteps.push({
+          title: "Understanding the Five Detection Criteria",
+          instruction: "The AI peak-detection algorithm evaluates five properties of every feature of the data. The threshold bars (next step) are built on these, so understanding them will help you assess whether a detection is real:\n\n• Prominence — How much a peak ‘stands out’ above surrounding signal. A prominent peak rises well above its neighbours; a low-prominence bump barely lifts above the baseline. High prominence strongly indicates a real peak.\n\n• Width — The horizontal span of the peak at half its height. Very narrow spikes are usually electrical noise or artefacts.\n\n• Height — The absolute signal intensity at the peak apex above the baseline. Too-small heights indicate the signal may not have risen meaningfully above background noise.\n\n• S/N — Signal-to-Noise Ratio. Measures how large the peak is compared to the random noise fluctuations in the surrounding baseline. Low S/N (e.g., below 2–3) suggests the ‘peak’ could simply be a noise spike.\n\n• Peak Area — The total area under the peak curve above the baseline. A real chromatographic peak has meaningful area; a narrow noise spike has near-zero area even if it looks tall.",
+          task: null,
+          isDone: true,
+          feedback: null,
+          highlightToggle: null,
+        });
+        allSteps.push({
+          title: "Turning the Threshold Bars On and Off",
+          instruction: "Click the “Threshold bars” switch in the AI DISPLAY OPTIONS bar to turn it on. Then click a peak in the peak list at the bottom of the screen — a panel in the bottom right shows five horizontal bars, one for each criterion. You may need to scroll down to see them.\n\nThe tick mark in the centre of each bar is the AI’s calibrated detection threshold for that criterion. The dot shows how far this peak’s own measured value is from that threshold:\n• Blue dot to the right → above the threshold (supports the detection). Further right = larger margin.\n• Orange dot to the left → below the threshold (weakens the detection).\n\nA detection with dots far to the right on all bars is more likely to be real. Several dots near the centre or to the left means it is borderline — for example, the detection at t≈9.80 has its S/N and Area dots to the left.\n\nWhen you are done, click the “Threshold bars” switch again to hide the bars. This switch only controls the bars — it does not affect the confidence display.",
+          task: "Turn threshold bars ON, click a peak to view its bars, then turn the bars OFF",
+          isDone: barsTurnedOn && selectedWithBars && barsTurnedOff,
+          feedback: !barsTurnedOn
+            ? "Click the “Threshold bars” switch above the chart to turn it on."
+            : !selectedWithBars
+            ? (tutBarsOn ? "Threshold bars are ON. Now click one of the AI-detected peaks in the peak list to see its bars." : "Turn the threshold bars back on, then click a peak in the list.")
+            : !barsTurnedOff
+            ? "Those are the threshold bars for the selected peak. Now click the “Threshold bars” switch again to turn them off."
+            : "You turned the threshold bars on and off. You can use this switch at any time.",
+          feedbackOk: barsTurnedOn && selectedWithBars && barsTurnedOff,
+          highlightToggle: "bars",
+        });
+        allSteps.push({
+          title: "Using the Switches Independently",
+          instruction: "The two switches work independently of each other. Any combination is allowed:\n• Both Off — only the peak location markers\n• Only AI confidence On\n• Only threshold bars On\n• Both On\n\nUse whichever combination helps you most, and change it whenever you want — including partway through a chromatogram.\n\nTry it now: turn BOTH switches on at the same time. (You can turn either one back off afterwards.)",
+          task: "Turn both switches on at the same time",
+          isDone: tutConfOn && tutBarsOn,
+          feedback: tutConfOn && tutBarsOn
+            ? "Both are on. Feel free to set them however you like for the rest of the tutorial."
+            : tutConfOn ? "AI confidence is on — now turn on the threshold bars too."
+            : tutBarsOn ? "Threshold bars are on — now turn on AI confidence too."
+            : "Turn on both the “AI confidence” and “Threshold bars” switches.",
+          feedbackOk: tutConfOn && tutBarsOn,
+          highlightToggle: "both",
+        });
+      }
+
       // Confidence icons (only for conditions that show confidence)
-      if (vizMode !== "peaks_only" && vizMode !== "bars_only") {
+      if (!isToggleMode && vizMode !== "peaks_only" && vizMode !== "bars_only") {
         allSteps.push({
           title: "Confidence Icons",
           instruction: "Each AI-detected peak has a colored circle above it showing the algorithm's confidence in that detection:\n\n\u2022 Blue = high confidence\n\u2022 Orange = low confidence\n\nThe fill shades smoothly between the two: the bluer it is, the more confident the algorithm; the more orange, the less confident.\n\nLook at the practice chart: the peak at t\u22482.50 has 95% confidence, the peak at t\u22485.00 has 68%, and the detection at t\u22489.80 has only 28%. Low and moderate-confidence detections are the ones most likely to need your attention.",
@@ -1454,7 +1601,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
       // Delete false positive (Peak 3 at t=9.8 is on a flat region — just noise)
       allSteps.push({
         title: "Deleting a False Detection",
-        instruction: "Look at the detection at t\u22489.80" + ((vizMode !== "peaks_only" && vizMode !== "bars_only") ? " (confidence: 28%)" : "") + " \u2014 it's located in a flat region of the chromatogram with no real signal, just baseline noise. The AI incorrectly flagged a small noise fluctuation as a peak.\n\nWhen you determine that an AI detection is not a real peak, you should delete it. You can delete a peak in two ways:\n\u2022 Click the red \u2715 button on the peak pill in the peak list at the bottom of the screen\n\u2022 Select the peak, then click the \u201cDelete Peak Annotation\u201d button in the action panel on the bottom right\n\nIf you accidentally delete a peak, it stays visible (grayed out) in the list \u2014 click it to restore it.",
+        instruction: "Look at the detection at t\u22489.80" + (isToggleMode ? " (with AI confidence turned on, you can see it is only 28%)" : (vizMode !== "peaks_only" && vizMode !== "bars_only") ? " (confidence: 28%)" : "") +" \u2014 it's located in a flat region of the chromatogram with no real signal, just baseline noise. The AI incorrectly flagged a small noise fluctuation as a peak.\n\nWhen you determine that an AI detection is not a real peak, you should delete it. You can delete a peak in two ways:\n\u2022 Click the red \u2715 button on the peak pill in the peak list at the bottom of the screen\n\u2022 Select the peak, then click the \u201cDelete Peak Annotation\u201d button in the action panel on the bottom right\n\nIf you accidentally delete a peak, it stays visible (grayed out) in the list \u2014 click it to restore it.",
         task: "Delete the false detection at t\u22489.80",
         isDone: falsePositiveDeleted,
         feedback: falsePositiveDeleted ? "Correct! You identified and removed the false detection from the flat baseline region." : "The false detection at t\u22489.80 is still present. Click the red \u2715 on its pill to delete it \u2014 notice how the signal there is flat with no real peak shape.",
@@ -1524,8 +1671,10 @@ function TutorialScreen({ vizMode, onDismiss }) {
     // ── STEP: Final ──
     allSteps.push({
       title: "You're Ready!",
-      instruction: isAICondition
-        ? "Great job completing the tutorial! To summarize your task:\n\nFor each chromatogram, review every AI-detected peak and ask yourself: \u201cIs this a real peak? Are its boundaries correct?\u201d\n\n\u2022 If the peak is real and boundaries are correct \u2014 leave it as is\n\u2022 If the peak is real but boundaries are wrong \u2014 drag the handles to fix them\n\u2022 If the detection is not a real peak \u2014 click the red \u2715 on its pill to delete it\n\u2022 If the AI missed a real peak \u2014 add it with \u201c+ Add Peak\u201d\n\u2022 Deleted peaks appear grayed out \u2014 click them to restore if needed\n\nWhen you are done with a chromatogram, click the large blue \u201cFinish This Chromatogram & Start Next\u201d button in the bar at the top of the screen to move on to the next one.\n\n\u26a0\ufe0f IMPORTANT \u2014 YOU DO NOT HAVE TO ANNOTATE EVERY CHROMATOGRAM. There are many chromatograms in this study, and you are not expected to get through all of them. As soon as you no longer feel like annotating, you should stop and move on to the surveys \u2014 this is completely fine and expected.\n\nTo do that, click the grey button in that same top bar, just to the left of the blue \u201cFinish This Chromatogram & Start Next\u201d button. It reads \u201cI don\u2019t feel like annotating anymore \u2014 take me to the surveys.\u201d You can click it at any time, after any chromatogram, to jump straight to the surveys.\n\nYou\u2019ll then complete three short surveys. Click \u201cStart Annotating\u201d when you\u2019re ready!"
+      instruction: isToggleMode
+        ? "Great job completing the tutorial! To summarize your task:\n\nFor each chromatogram, review every AI-detected peak and ask yourself: “Is this a real peak? Are its boundaries correct?”\n\n• If the peak is real and boundaries are correct — leave it as is\n• If the peak is real but boundaries are wrong — drag the handles to fix them\n• If the detection is not a real peak — click the red ✕ on its pill to delete it\n• If the AI missed a real peak — add it with “+ Add Peak”\n• Deleted peaks appear grayed out — click them to restore if needed\n\nThe AI DISPLAY OPTIONS bar above the chart is always available. The real task starts with both switches Off (location markers only). Click “AI confidence” to show or hide the confidence colors and scores, and click “Threshold bars” to show or hide the bars for the selected peak — each switch works on its own, and you can change them at any time.\n\nPlease annotate EVERY chromatogram. When you are done with one, click the large blue “Finish This Chromatogram & Start Next” button in the bar at the top of the screen. On the last chromatogram, that button becomes a green “Finish & Submit” button, which submits your annotations and ends the study. You cannot go back to a previous chromatogram, so take your time on each one.\n\nClick “Start Annotating” when you’re ready!"
+        : isAICondition
+        ?"Great job completing the tutorial! To summarize your task:\n\nFor each chromatogram, review every AI-detected peak and ask yourself: \u201cIs this a real peak? Are its boundaries correct?\u201d\n\n\u2022 If the peak is real and boundaries are correct \u2014 leave it as is\n\u2022 If the peak is real but boundaries are wrong \u2014 drag the handles to fix them\n\u2022 If the detection is not a real peak \u2014 click the red \u2715 on its pill to delete it\n\u2022 If the AI missed a real peak \u2014 add it with \u201c+ Add Peak\u201d\n\u2022 Deleted peaks appear grayed out \u2014 click them to restore if needed\n\nWhen you are done with a chromatogram, click the large blue \u201cFinish This Chromatogram & Start Next\u201d button in the bar at the top of the screen to move on to the next one.\n\n\u26a0\ufe0f IMPORTANT \u2014 YOU DO NOT HAVE TO ANNOTATE EVERY CHROMATOGRAM. There are many chromatograms in this study, and you are not expected to get through all of them. As soon as you no longer feel like annotating, you should stop and move on to the surveys \u2014 this is completely fine and expected.\n\nTo do that, click the grey button in that same top bar, just to the left of the blue \u201cFinish This Chromatogram & Start Next\u201d button. It reads \u201cI don\u2019t feel like annotating anymore \u2014 take me to the surveys.\u201d You can click it at any time, after any chromatogram, to jump straight to the surveys.\n\nYou\u2019ll then complete three short surveys. Click \u201cStart Annotating\u201d when you\u2019re ready!"
         : "Great job completing the tutorial! To summarize your task:\n\nFor each chromatogram, find every peak and label its start, apex, and end boundaries using \u201c+ Add Peak\u201d and the drag handles.\n\nA peak is a region where the signal rises clearly above the baseline and then returns. Use zoom and pan to inspect the chromatogram carefully.\n\n\u2022 Use the \u2715 button on a peak pill to delete it, or select it and click Delete Peak Annotation\n\u2022 Deleted peaks appear grayed out \u2014 click them to restore if needed\n\nWhen you are done with a chromatogram, click the large blue \u201cFinish This Chromatogram & Start Next\u201d button in the bar at the top of the screen to move on to the next one.\n\n\u26a0\ufe0f IMPORTANT \u2014 YOU DO NOT HAVE TO ANNOTATE EVERY CHROMATOGRAM. There are many chromatograms in this study, and you are not expected to get through all of them. As soon as you no longer feel like annotating, you should stop and move on to the surveys \u2014 this is completely fine and expected.\n\nTo do that, click the grey button in that same top bar, just to the left of the blue \u201cFinish This Chromatogram & Start Next\u201d button. It reads \u201cI don\u2019t feel like annotating anymore \u2014 take me to the surveys.\u201d You can click it at any time, after any chromatogram, to jump straight to the surveys.\n\nYou\u2019ll then complete three short surveys. Click \u201cStart Annotating\u201d when you\u2019re ready!",
       task: null,
       isDone: true,
@@ -1533,7 +1682,8 @@ function TutorialScreen({ vizMode, onDismiss }) {
     });
 
     return allSteps;
-  }, [vizMode, isAICondition, hasZoomed, hasPanned, hasSelectedPeak, hasDragged, hasAddedPeak, hasDeletedPeak, hasHoveredPeak, peak2Validation, falsePositiveDeleted, missedPeakValidation, nonePeakValidation]);
+  }, [vizMode, isAICondition, isToggleMode, hasZoomed, hasPanned, hasSelectedPeak, hasDragged, hasAddedPeak, hasDeletedPeak, hasHoveredPeak, peak2Validation, falsePositiveDeleted, missedPeakValidation, nonePeakValidation,
+      tutConfOn, tutBarsOn, confTurnedOn, confTurnedOff, barsTurnedOn, barsTurnedOff, selectedWithBars]);
 
   const canAdvance = steps[step]?.isDone;
   const isLast = step === steps.length - 1;
@@ -1567,6 +1717,12 @@ function TutorialScreen({ vizMode, onDismiss }) {
         { n: 1, label: "Find peaks", desc: "Look for signal rises above the baseline" },
         { n: 2, label: "Add each one", desc: "Click \"+ Add Peak\" then drag handles to fit" },
         { n: 3, label: "Move to next", desc: "When done, click \"Start Annotating\"" },
+      ]
+    : isToggleMode
+    ? [
+        { n: 1, label: "Review AI peaks", desc: "Markers show where the AI detected peaks" },
+        { n: 2, label: "Keep, edit, or remove", desc: "Use the switches to show AI info if you want it" },
+        { n: 3, label: "Add any it missed", desc: "Use \"+ Add Peak\" if the AI missed one" },
       ]
     : vizMode === "peaks_only"
     ? [
@@ -1733,6 +1889,12 @@ function TutorialScreen({ vizMode, onDismiss }) {
         </div>
       )}
 
+      {/* ── Display toggles (user_toggle only) — individual on/off switches ── */}
+      {isToggleMode && showChart && (
+        <DisplayToggleBar confOn={tutConfOn} barsOn={tutBarsOn} onToggle={tutToggle}
+          highlight={current.highlightToggle ?? null} trackPrefix="tutorial_toggle" />
+      )}
+
       {/* ── Full-width chart ── */}
       {showChart && (
         <>
@@ -1787,7 +1949,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
                     peaks in peaks_only and bars_only (neutral gray, no confidence color) */}
                 {activeTutPeaks.map(pk => {
                   const isUser = pk.id.startsWith("user_");
-                  if (!isUser && vizMode !== "peaks_only" && vizMode !== "bars_only") return null;
+                  if (!isUser && showConf) return null;
                   const x0 = txScale(pk.userStart), x1 = txScale(pk.userEnd);
                   if (x1 < tpad.l || x0 > tpad.l + tPlotW) return null;
                   const areaPath = buildTutPeakAreaPath(pk);
@@ -1932,7 +2094,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
                     const origIdx = TUTORIAL_PEAKS.findIndex(p => p.id === pk.id);
                     const ex = origIdx >= 0 ? TUTORIAL_EXPLANATIONS[origIdx] : null;
                     const txt = hasExplanation && ex ? (vizMode === "normal_explain" ? ex.feature : ex.counterfactual) : null;
-                    const tutThresholds = ((vizMode === "threshold_bars" || vizMode === "bars_only") && ex) ? (ex.thresholds || parseThresholdPcts(ex.feature)) : null;
+                    const tutThresholds = (showBars && ex) ? (ex.thresholds || parseThresholdPcts(ex.feature)) : null;
                     return (
                       <div key={pk.id}
                         style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "6px 10px 6px 12px", borderRadius: 20, background: chipBg, border: chipBorder, cursor: "pointer", transition: "all .12s" }}
@@ -1996,7 +2158,7 @@ function TutorialScreen({ vizMode, onDismiss }) {
                     {(() => {
                       const origIdx = TUTORIAL_PEAKS.findIndex(p => p.id === selPk.id);
                       const ex = origIdx >= 0 ? TUTORIAL_EXPLANATIONS[origIdx] : null;
-                      const tutThresholds = (vizMode === "threshold_bars" || vizMode === "bars_only") && ex ? (ex.thresholds || parseThresholdPcts(ex.feature)) : null;
+                      const tutThresholds = showBars && ex ? (ex.thresholds || parseThresholdPcts(ex.feature)) : null;
                       const txt = hasExplanation && ex ? (vizMode === "normal_explain" ? ex.feature : ex.counterfactual) : null;
                       if (!tutThresholds && !txt) return null;
                       return (
@@ -2059,6 +2221,13 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
   // Whether the "Quit study" confirmation modal is open. The quit button is an
   // emergency early-exit that skips straight to the completion code.
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
+  // user_toggle condition: confidence display and threshold bars each start
+  // OFF (location markers only) and are switched on/off individually by the
+  // participant. The choice persists across chromatograms.
+  const isToggleMode = vizMode === "user_toggle";
+  const [confToggleOn, setConfToggleOn] = useState(false);
+  const [barsToggleOn, setBarsToggleOn] = useState(false);
+  const displayStateRef = useRef({ confidence: false, bars: false });
   const [, forceRender] = useState(0);
   const [tick, setTick] = useState(0);
 
@@ -2623,6 +2792,20 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
     };
 
     // ── Per-chromatogram aggregates ──
+    // ── Display-toggle on-intervals (user_toggle only) ──
+    // [startMs, endMs] spans during which each display was switched on.
+    const toggleIntervals = { confidence: [], bars: [] };
+    if (isToggleMode) {
+      const openAt = { confidence: null, bars: null };
+      for (const ev of T.displayToggleLog) {
+        if (ev.on && openAt[ev.feature] == null) openAt[ev.feature] = ev.timeMs;
+        else if (!ev.on && openAt[ev.feature] != null) { toggleIntervals[ev.feature].push([openAt[ev.feature], ev.timeMs]); openAt[ev.feature] = null; }
+      }
+      for (const f of ["confidence", "bars"]) if (openAt[f] != null) toggleIntervals[f].push([openAt[f], now]);
+    }
+    const overlapMs = (ivs, a, b) => ivs.reduce((s, [x, y]) => s + Math.max(0, Math.min(y, b) - Math.max(x, a)), 0);
+    const onMsDuring = (feature, visitList) => visitList.reduce((s, v) => s + overlapMs(toggleIntervals[feature], v.enter, v.exit), 0);
+
     const perChrom = datasets.map((d, i) => {
       const ap = (allAnnotations[i] || []).filter(a => !a.deleted);
       const ap_all = allAnnotations[i] || [];
@@ -2776,6 +2959,23 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
           }));
         })(),
         visits: chromVisits,                   // raw visit list
+        // user_toggle only: how much of this chromatogram's active time each
+        // AI display was switched on, and how often it was toggled here.
+        displayToggles: isToggleMode ? (() => {
+          const confMs = onMsDuring("confidence", chromVisits);
+          const barsMs = onMsDuring("bars", chromVisits);
+          const evs = T.displayToggleLog.filter(ev => ev.chromIdx === i);
+          const fin = [...T.chromFinalStates].reverse().find(s => s.chromIdx === i);
+          return {
+            confidenceOnMs: confMs,
+            barsOnMs: barsMs,
+            confidenceOnFraction: totalActiveMs > 0 ? confMs / totalActiveMs : null,
+            barsOnFraction: totalActiveMs > 0 ? barsMs / totalActiveMs : null,
+            confidenceToggleCount: evs.filter(ev => ev.feature === "confidence").length,
+            barsToggleCount: evs.filter(ev => ev.feature === "bars").length,
+            displayStateAtFinish: fin?.displayState ?? null,
+          };
+        })() : null,
       };
     });
 
@@ -2864,6 +3064,28 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
 
       // ── Per-chromatogram structured summaries ──
       chromatograms: perChrom,
+
+      // ── user_toggle only: session-wide display-toggle usage ──
+      // On-times are counted only during chromatogram visits (tutorial excluded).
+      displayToggles: isToggleMode ? (() => {
+        const activeMs = visits.reduce((s, v) => s + (v.exit - v.enter), 0);
+        const confMs = onMsDuring("confidence", visits);
+        const barsMs = onMsDuring("bars", visits);
+        return {
+          initialState: { confidence: false, bars: false },
+          finalState: { ...displayStateRef.current },
+          confidenceOnMs: confMs,
+          barsOnMs: barsMs,
+          confidenceOnFraction: activeMs > 0 ? confMs / activeMs : null,
+          barsOnFraction: activeMs > 0 ? barsMs / activeMs : null,
+          confidenceToggleCount: T.displayToggleLog.filter(ev => ev.feature === "confidence").length,
+          barsToggleCount: T.displayToggleLog.filter(ev => ev.feature === "bars").length,
+          everTurnedOnConfidence: T.displayToggleLog.some(ev => ev.feature === "confidence" && ev.on),
+          everTurnedOnBars: T.displayToggleLog.some(ev => ev.feature === "bars" && ev.on),
+          intervals: toggleIntervals,
+          log: T.displayToggleLog,
+        };
+      })() : null,
     };
   };
 
@@ -2886,8 +3108,9 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
   const finishCurrentChrom = (last) => {
     const _ps = [...activePeaks].sort((a, b) => a.userApex - b.userApex)
       .map(p => ({ id: p.id, start: p.userStart, apex: p.userApex, end: p.userEnd, confidence: p.confidence ?? null, ...peakProvenance(p) }));
-    T.chromFinalStates.push({ chromIdx: currentIdx, chromName: ds.name, snapshotTimeMs: Date.now() - T.sessionStart, domain: [...domain], peaks: _ps });
-    pushInteraction(T, "finish_chrom", currentIdxRef.current, null, null, { chromIdx: currentIdx, peakCountFinal: activePeaks.length, isLastChrom: last, finalPeaks: _ps, viewportDomain: [...domain] });
+    const _disp = isToggleMode ? { ...displayStateRef.current } : undefined;
+    T.chromFinalStates.push({ chromIdx: currentIdx, chromName: ds.name, snapshotTimeMs: Date.now() - T.sessionStart, domain: [...domain], peaks: _ps, ...(_disp ? { displayState: _disp } : {}) });
+    pushInteraction(T, "finish_chrom", currentIdxRef.current, null, null, { chromIdx: currentIdx, peakCountFinal: activePeaks.length, isLastChrom: last, finalPeaks: _ps, viewportDomain: [...domain], ...(_disp ? { displayState: _disp } : {}) });
     if (last) proceedToSurveys(); else goNext();
   };
   const skipToSurveys = () => {
@@ -2931,9 +3154,33 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
   const xTicks = useMemo(() => Array.from({ length: 9 }, (_, i) => domain[0] + (i / 8) * (domain[1] - domain[0])), [domain]);
   const yTicks = useMemo(() => Array.from({ length: 6 }, (_, i) => (i / 5) * yMax), [yMax]);
 
+  // ── Display toggle handler (user_toggle only) ──
+  const toggleDisplay = (feature) => {
+    const cur = displayStateRef.current;
+    const on = !cur[feature];
+    const after = { ...cur, [feature]: on };
+    displayStateRef.current = after;
+    if (feature === "confidence") setConfToggleOn(on); else setBarsToggleOn(on);
+    T.displayToggleLog.push({
+      timeMs: Date.now() - T.sessionStart,
+      chromIdx: currentIdxRef.current,
+      feature, on,
+      selectedPeakId: selectedPeakId ?? null,
+    });
+    pushInteraction(T, `${on ? "show" : "hide"}_${feature}`, currentIdxRef.current,
+      selectedPeakId ?? null, selectedPeakId ? spatialIndexOf(selectedPeakId) : null,
+      { feature, on, displayStateAfter: after });
+  };
+
   // ── derived display flags ──────────────────────────────────────────────────
   // showConf: whether to show AI confidence icons/scores on the chart
-  const showConf = vizMode !== "none" && vizMode !== "no_ai" && vizMode !== "peaks_only" && vizMode !== "bars_only";
+  const showConf = isToggleMode
+    ? confToggleOn
+    : vizMode !== "none" && vizMode !== "no_ai" && vizMode !== "peaks_only" && vizMode !== "bars_only";
+  // showBars: whether the selected-peak panel shows the threshold bars
+  const showBars = isToggleMode
+    ? barsToggleOn
+    : vizMode === "threshold_bars" || vizMode === "bars_only";
   // isAICondition: whether AI peaks are pre-loaded (includes peaks_only)
   const isAICondition = vizMode !== "none" && vizMode !== "no_ai";
   const isLastChrom = currentIdx === datasets.length - 1;
@@ -2948,7 +3195,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
   const selTxt  = selHasExplanation ? (selEx ? (vizMode === "normal_explain" ? selEx.feature : selEx.counterfactual) : "No explanation available.") : null;
   // For threshold_bars: use pre-parsed thresholds from JSON if available,
   // fall back to regex-parsing the feature explanation text.
-  const selThresholds = ((vizMode === "threshold_bars" || vizMode === "bars_only") && selEx)
+  const selThresholds = (showBars && selEx)
     ? (selEx.thresholds || parseThresholdPcts(selEx.feature))
     : null;
   const selIsUserPeak = selPeak?.id?.startsWith("user_");
@@ -2959,6 +3206,12 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
         { n: 1, label: "Find peaks", desc: "Look for signal rises above the baseline" },
         { n: 2, label: "Add each one", desc: "Click \"+ Add Peak\" then drag handles to fit" },
         { n: 3, label: "Move to next", desc: "When done, click \"Finish & Start Next\"" },
+      ]
+    : isToggleMode
+    ? [
+        { n: 1, label: "Review AI peaks", desc: "Markers show where the AI detected peaks" },
+        { n: 2, label: "Keep, edit, or remove", desc: "Use the switches to show AI info if you want it" },
+        { n: 3, label: "Add any it missed", desc: "Use \"+ Add Peak\" if the AI missed one" },
       ]
     : vizMode === "peaks_only"
     ? [
@@ -3274,13 +3527,22 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
             <h2 style={{ fontSize: 19, fontWeight: 800, color: "#b91c1c", textAlign: "center", margin: "0 0 14px" }}>
               Are you sure you want to quit?
             </h2>
-            <p style={{ fontSize: 13.5, color: "#334155", lineHeight: 1.6, margin: "0 0 10px" }}>
-              This <strong>ends the study immediately</strong>. It skips the rest of the study entirely &mdash; the remaining chromatograms <strong>and all of the surveys</strong> &mdash; and takes you straight to the final completion code. Your data so far will still be saved.
-            </p>
-            <p style={{ fontSize: 13.5, color: "#334155", lineHeight: 1.6, margin: "0 0 18px" }}>
-              Only use this if you need to <strong>back out of the study</strong>. If you are simply done annotating and want to continue normally, go back and use the
-              {" "}<em>&ldquo;I don&rsquo;t feel like annotating anymore &mdash; take me to the surveys&rdquo;</em> button instead.
-            </p>
+            {isToggleMode ? (<>
+              <p style={{ fontSize: 13.5, color: "#334155", lineHeight: 1.6, margin: "0 0 10px" }}>
+                This <strong>ends the study immediately</strong>. It skips the <strong>remaining chromatograms</strong> and takes you straight to the final completion code. Your data so far will still be saved.
+              </p>
+              <p style={{ fontSize: 13.5, color: "#334155", lineHeight: 1.6, margin: "0 0 18px" }}>
+                Only use this if you need to <strong>back out of the study</strong>. Otherwise, please go back and continue annotating the remaining chromatograms.
+              </p>
+            </>) : (<>
+              <p style={{ fontSize: 13.5, color: "#334155", lineHeight: 1.6, margin: "0 0 10px" }}>
+                This <strong>ends the study immediately</strong>. It skips the rest of the study entirely &mdash; the remaining chromatograms <strong>and all of the surveys</strong> &mdash; and takes you straight to the final completion code. Your data so far will still be saved.
+              </p>
+              <p style={{ fontSize: 13.5, color: "#334155", lineHeight: 1.6, margin: "0 0 18px" }}>
+                Only use this if you need to <strong>back out of the study</strong>. If you are simply done annotating and want to continue normally, go back and use the
+                {" "}<em>&ldquo;I don&rsquo;t feel like annotating anymore &mdash; take me to the surveys&rdquo;</em> button instead.
+              </p>
+            </>)}
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => setShowQuitConfirm(false)} data-track="quit_study_cancel"
                 style={{ flex: 1, padding: "11px", borderRadius: 9, border: "1.5px solid #cbd5e1", background: "#f8fafc", color: "#334155", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>
@@ -3314,9 +3576,14 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
             Next / surveys / quit controls avoids that conflict). ── */}
       <div style={{ position: "sticky", top: 0, zIndex: 50, background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "8px 20px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", boxShadow: "0 2px 8px rgba(0,0,0,.06)" }}>
         <span style={{ fontSize: 12.5, fontWeight: 700, color: "#1e293b" }}>Chromatogram {currentIdx + 1}</span>
-        <span style={{ fontSize: 11, color: "#94a3b8" }}>You do not have to finish every chromatogram.</span>
+        {isToggleMode ? (
+          <span style={{ fontSize: 11, color: "#94a3b8" }}>of {datasets.length} &mdash; please annotate every chromatogram.</span>
+        ) : (
+          <span style={{ fontSize: 11, color: "#94a3b8" }}>You do not have to finish every chromatogram.</span>
+        )}
         <div style={{ flex: 1, minWidth: 8 }} />
-        {!isLastChrom && (
+        {/* user_toggle has no early exit to the end — participants annotate every chromatogram */}
+        {!isLastChrom && !isToggleMode && (
           <button onClick={skipToSurveys} data-track="skip_to_surveys"
             style={{ padding: "8px 14px", borderRadius: 8, border: "1.5px solid #cbd5e1", fontSize: 12.5, fontWeight: 600, cursor: "pointer", background: "#f8fafc", color: "#475569" }}>
             I don&rsquo;t feel like annotating anymore &mdash; take me to the surveys &rarr;
@@ -3324,7 +3591,9 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
         )}
         <button onClick={() => finishCurrentChrom(isLastChrom)} data-track={isLastChrom ? "nav_to_surveys" : "nav_next"}
           style={{ padding: "9px 18px", borderRadius: 8, border: "none", fontSize: 13.5, fontWeight: 700, cursor: "pointer", color: "#fff", background: isLastChrom ? "linear-gradient(135deg,#059669,#10b981)" : "linear-gradient(135deg,#1e40af,#3b82f6)", boxShadow: isLastChrom ? "0 2px 10px rgba(5,150,105,.3)" : "0 2px 10px rgba(30,64,175,.25)" }}>
-          {isLastChrom ? "Finish & Continue to Surveys →" : "Finish This Chromatogram & Start Next →"}
+          {isLastChrom
+            ? (isToggleMode ? "Finish & Submit →" : "Finish & Continue to Surveys →")
+            : "Finish This Chromatogram & Start Next →"}
         </button>
         <button onClick={() => setShowQuitConfirm(true)} data-track="quit_study_open"
           style={{ padding: "8px 12px", borderRadius: 8, border: "1.5px solid #fca5a5", fontSize: 12, fontWeight: 700, cursor: "pointer", background: "#fff", color: "#b91c1c" }}>
@@ -3416,6 +3685,11 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
         </div>
       )}
 
+      {/* ── Display toggles (user_toggle only) — individual on/off switches ── */}
+      {isToggleMode && (
+        <DisplayToggleBar confOn={confToggleOn} barsOn={barsToggleOn} onToggle={toggleDisplay} />
+      )}
+
       {/* ── Full-width chart card ── */}
       <div style={{ padding: "12px 20px 0" }}>
         <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", overflow: "hidden" }}>
@@ -3478,7 +3752,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
                 area is shaded and AI/user peaks share one neutral color. */}
             {fillMode && activePeaks.map(pk => {
               const isUser = pk.id.startsWith("user_");
-              if (!isUser && vizMode !== "peaks_only" && vizMode !== "bars_only") return null;
+              if (!isUser && showConf) return null;
               const x0 = fxScale(pk.userStart), x1 = fxScale(pk.userEnd);
               if (x1 < fpad.l || x0 > fpad.l + fplotW) return null;
               const areaPath = buildPeakAreaPath(pk);
@@ -3762,6 +4036,8 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
               <div style={{ fontSize: 11, lineHeight: 1.5 }}>
                 {vizMode === "none" || vizMode === "no_ai"
                   ? "Click any peak chip above or click a peak badge on the chart to select it. Then drag the handles to adjust its boundaries."
+                  : isToggleMode
+                  ? `Click a peak marker on the chart or a peak chip above. Then decide: keep, edit, or remove it.${barsToggleOn ? " Its threshold bars will appear here." : ""}`
                   : "Click a numbered badge on the chart or a peak chip above. Then decide: keep, edit, or remove it."}
               </div>
             </div>
@@ -4456,7 +4732,11 @@ export default function App() {
   // Parse all URL params once on load
   const { prolificParams, urlCondition } = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
-    const VALID_CONDITIONS = ["no_ai", "peaks_only", "confidence", "threshold_bars", "bars_only"];
+    // "user_toggle": AI peaks start as plain location markers; the participant
+    // can switch the confidence display and the threshold bars on/off
+    // individually. This condition has no early "skip to surveys" exit and no
+    // post-task surveys (NASA-TLX, engagement feedback, demographics).
+    const VALID_CONDITIONS = ["no_ai", "peaks_only", "confidence", "threshold_bars", "bars_only", "user_toggle"];
     const c = params.get("condition");
     return {
       prolificParams: {
@@ -4497,8 +4777,80 @@ function StudyFlow({ session }) {
   // needing to rebuild the entire results object.
   const finalResultsRef = useRef(null);
 
+  // Per-chromatogram engagement columns for the flat summary row (shared by
+  // the full-survey path and the no-survey user_toggle path).
+  const buildChromFlatColumns = (annResults) => annResults.chromatograms.reduce((acc, c, i) => {
+    const key = `chrom${i + 1}`;
+    acc[`${key}_totalActiveMs`] = c.totalActiveMs;
+    acc[`${key}_revisitCount`] = c.revisitCount;
+    acc[`${key}_timeToFirstEditMs`] = c.timeToFirstEditMs;
+    acc[`${key}_clickCount`] = c.clickCount;
+    acc[`${key}_editCount`] = c.editCount;
+    acc[`${key}_uniquePeaksEdited`] = c.uniquePeaksEdited;
+    acc[`${key}_returnEditCount`] = c.returnEditCount;
+    acc[`${key}_editOrderMonotonicity`] = c.editOrderMonotonicity;
+    acc[`${key}_meanDragAbsDelta`] = c.dragStats?.meanAbsDelta ?? null;
+    acc[`${key}_handleReEdits`] = c.dragStats?.handleReEdits ?? null;
+    acc[`${key}_meanHoverMs`] = c.hoverStats?.meanDurationMs ?? null;
+    acc[`${key}_hoversWithoutClick`] = c.hoverStats?.hoversWithoutClick ?? null;
+    if (c.aiAcceptance) {
+      acc[`${key}_aiAcceptanceRate`] = c.aiAcceptance.acceptanceRate;
+      acc[`${key}_aiModified`] = c.aiAcceptance.modified;
+      acc[`${key}_aiDeleted`] = c.aiAcceptance.deleted;
+      acc[`${key}_userAdded`] = c.aiAcceptance.addedByUser;
+    }
+    if (c.displayToggles) {
+      acc[`${key}_confidenceOnFraction`] = c.displayToggles.confidenceOnFraction;
+      acc[`${key}_barsOnFraction`] = c.displayToggles.barsOnFraction;
+      acc[`${key}_confidenceToggleCount`] = c.displayToggles.confidenceToggleCount;
+      acc[`${key}_barsToggleCount`] = c.displayToggles.barsToggleCount;
+    }
+    return acc;
+  }, {});
+
+  // user_toggle condition: no NASA-TLX, engagement/feedback, or demographics
+  // surveys — annotation results are uploaded directly and the participant
+  // goes straight to the completion screen.
+  const finishWithoutSurveys = (annResults) => {
+    const dt = annResults.displayToggles;
+    const finalResults = {
+      ...annResults,
+      surveysCollected: false,
+      surveys: null,
+      attentionChecks: null,
+      flatSummary: {
+        participant: annResults.userName,
+        condition: annResults.visualizationMode,
+        sessionDurationMs: annResults.sessionDurationMs,
+        totalClicks: annResults.totalClicks,
+        totalAnnotationEdits: annResults.totalAnnotationEdits,
+        totalIdleMs: annResults.totalIdleMs,
+        avgInterClickMs: annResults.avgInterClickMs,
+        clickRateSlopePerMin: annResults.clickFrequency?.clickRateSlopePerMin ?? null,
+        firstHalfClicksPerMin: annResults.clickFrequency?.firstHalfRatePerMin ?? null,
+        secondHalfClicksPerMin: annResults.clickFrequency?.secondHalfRatePerMin ?? null,
+        halfRatioSecondOverFirst: annResults.clickFrequency?.firstVsSecondHalfRatio ?? null,
+        totalReturnEdits: annResults.engagement?.totalReturnEdits ?? null,
+        sessionEditOrderMonotonicity: annResults.engagement?.sessionEditOrderMonotonicity ?? null,
+        // Display-toggle usage (session-wide)
+        confidenceOnMs: dt?.confidenceOnMs ?? null,
+        barsOnMs: dt?.barsOnMs ?? null,
+        confidenceOnFraction: dt?.confidenceOnFraction ?? null,
+        barsOnFraction: dt?.barsOnFraction ?? null,
+        confidenceToggleCount: dt?.confidenceToggleCount ?? null,
+        barsToggleCount: dt?.barsToggleCount ?? null,
+        ...buildChromFlatColumns(annResults),
+      },
+    };
+    finalResultsRef.current = finalResults;
+    setUploadStatus("uploading");
+    setPhase("complete");
+    doUpload(finalResults);
+  };
+
   const handleAnnotationDone = (results) => {
     setAnnotationResults(results);
+    if (session.vizMode === "user_toggle") { finishWithoutSurveys(results); return; }
     setPhase("nasa_tlx");
   };
 
@@ -4640,29 +4992,7 @@ function StudyFlow({ session }) {
         // Demographics
         ...demographicsResponses,
         // Per-chromatogram accuracy + NEW per-chromatogram timing/engagement
-        ...annotationResults.chromatograms.reduce((acc, c, i) => {
-          const key = `chrom${i + 1}`;
-          // per-chromatogram engagement columns
-          acc[`${key}_totalActiveMs`] = c.totalActiveMs;
-          acc[`${key}_revisitCount`] = c.revisitCount;
-          acc[`${key}_timeToFirstEditMs`] = c.timeToFirstEditMs;
-          acc[`${key}_clickCount`] = c.clickCount;
-          acc[`${key}_editCount`] = c.editCount;
-          acc[`${key}_uniquePeaksEdited`] = c.uniquePeaksEdited;
-          acc[`${key}_returnEditCount`] = c.returnEditCount;
-          acc[`${key}_editOrderMonotonicity`] = c.editOrderMonotonicity;
-          acc[`${key}_meanDragAbsDelta`] = c.dragStats?.meanAbsDelta ?? null;
-          acc[`${key}_handleReEdits`] = c.dragStats?.handleReEdits ?? null;
-          acc[`${key}_meanHoverMs`] = c.hoverStats?.meanDurationMs ?? null;
-          acc[`${key}_hoversWithoutClick`] = c.hoverStats?.hoversWithoutClick ?? null;
-          if (c.aiAcceptance) {
-            acc[`${key}_aiAcceptanceRate`] = c.aiAcceptance.acceptanceRate;
-            acc[`${key}_aiModified`] = c.aiAcceptance.modified;
-            acc[`${key}_aiDeleted`] = c.aiAcceptance.deleted;
-            acc[`${key}_userAdded`] = c.aiAcceptance.addedByUser;
-          }
-          return acc;
-        }, {}),
+        ...buildChromFlatColumns(annotationResults),
       },
     };
 
