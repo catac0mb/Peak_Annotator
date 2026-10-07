@@ -1,0 +1,137 @@
+[
+  {
+    "peak_id": "peak_1",
+    "apex_time": 1.1264095511938992,
+    "start_time": 0.7441570196274534,
+    "end_time": 1.4825003125390672,
+    "confidence_percent": 85.8,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+},
+  {
+    "peak_id": "peak_2",
+    "apex_time": 2.3443852981622704,
+    "start_time": 2.2382847855981995,
+    "end_time": 2.45629953744218,
+    "confidence_percent": 38.0,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+},
+  {
+    "peak_id": "peak_3",
+    "apex_time": 3.260047255906988,
+    "start_time": 3.1801085135641958,
+    "end_time": 3.339985998249781,
+    "confidence_percent": 27.2,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+  },
+  {
+    "peak_id": "peak_4",
+    "apex_time": 4.087049881235155,
+    "start_time": 4.015831728966121,
+    "end_time": 4.158268033504188,
+    "confidence_percent": 1.0,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+},
+  {
+    "peak_id": "peak_5",
+    "apex_time": 4.6466210776347046,
+    "start_time": 4.611738717339668,
+    "end_time": 4.675689711213901,
+    "confidence_percent": 79.8,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+  },
+  {
+    "peak_id": "peak_6",
+    "apex_time": 5.180030503812977,
+    "start_time": 5.108812351543943,
+    "end_time": 5.25124865608201,
+    "confidence_percent": 1.0,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+  },
+  {
+    "peak_id": "peak_7",
+    "apex_time": 5.569550193774221,
+    "start_time": 5.534667833479185,
+    "end_time": 5.597165395674459,
+    "confidence_percent": 54.4,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+  },
+  {
+    "peak_id": "peak_8",
+    "apex_time": 6.286092011501437,
+    "start_time": 6.014300287535942,
+    "end_time": 6.557883735466933,
+    "confidence_percent": 68.8,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+  },
+  {
+    "peak_id": "peak_9",
+    "apex_time": 7.188673084135517,
+    "start_time": 7.107280910113764,
+    "end_time": 7.272972121515189,
+    "confidence_percent": 33.5,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+  },
+  {
+    "peak_id": "peak_10",
+    "apex_time": 7.82527615951994,
+    "start_time": 7.754058007250906,
+    "end_time": 7.896494311788973,
+    "confidence_percent": 1.0,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+  },
+  {
+    "peak_id": "peak_11",
+    "apex_time": 8.198808101012625,
+    "start_time": 8.166832604075509,
+    "end_time": 8.232237029628703,
+    "confidence_percent": 73.1,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+  },
+  {
+    "peak_id": "peak_12",
+    "apex_time": 9.006916114514313,
+    "start_time": 8.964766595824477,
+    "end_time": 9.04325190648831,
+    "confidence_percent": 39.9,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+  },
+  {
+    "peak_id": "peak_13",
+    "apex_time": 9.925484935616952,
+    "start_time": 9.642065758219776,
+    "end_time": 10.185649206150767,
+    "confidence_percent": 74.2,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+  },
+  {
+    "peak_id": "peak_14",
+    "apex_time": 10.656561070133764,
+    "start_time": 10.61295811976497,
+    "end_time": 10.700164020502562,
+    "confidence_percent": 47.9,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+  },
+  {
+    "peak_id": "peak_15",
+    "apex_time": 11.011198399799976,
+    "start_time": 10.9487008376047,
+    "end_time": 11.078056257032127,
+    "confidence_percent": 32.5,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+  }
+]
