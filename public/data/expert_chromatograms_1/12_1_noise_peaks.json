@@ -1,0 +1,141 @@
+[
+  {
+    "peak_id": "peak_1",
+    "apex_time": 0.2935326915864483,
+    "start_time": 0.2236439554944368,
+    "end_time": 0.3721575196899613,
+    "confidence_percent": 27.8,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+    
+  },
+  {
+    "peak_id": "peak_2",
+    "apex_time": 1.231788973621703,
+    "start_time": 1.189855731966496,
+    "end_time": 1.2702277784723093,
+    "confidence_percent": 40.5,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+    
+  },
+  {
+    "peak_id": "peak_3",
+    "apex_time": 2.624322040255032,
+    "start_time": 2.269636704588074,
+    "end_time": 2.9300852606575827,
+    "confidence_percent": 83.5,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+  },
+  {
+    "peak_id": "peak_4",
+    "apex_time": 3.838638829853732,
+    "start_time": 3.760014001750219,
+    "end_time": 3.917263657957245,
+    "confidence_percent": 3.0,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+    
+  },
+  {
+    "peak_id": "peak_5",
+    "apex_time": 4.3575626953369175,
+    "start_time": 4.324365545693212,
+    "end_time": 4.385518189773722,
+    "confidence_percent": 85.0,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+    
+  },
+  {
+    "peak_id": "peak_6",
+    "apex_time": 5.678459807475935,
+    "start_time": 5.460057507188399,
+    "end_time": 5.89336767095887,
+    "confidence_percent": 56.8,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+    
+  },
+  {
+    "peak_id": "peak_7",
+    "apex_time": 6.995862482810352,
+    "start_time": 6.901512689086137,
+    "end_time": 7.084970621327667,
+    "confidence_percent": 37.7,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+    
+  },
+  {
+    "peak_id": "peak_8",
+    "apex_time": 7.6895081885235665,
+    "start_time": 7.656311038879861,
+    "end_time": 7.719210901362671,
+    "confidence_percent": 53.7,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+    
+  },
+  {
+    "peak_id": "peak_9",
+    "apex_time": 8.460031503937993,
+    "start_time": 8.37441780222528,
+    "end_time": 8.533414676834605,
+    "confidence_percent": 72.8,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+    
+  },
+  {
+    "peak_id": "peak_10",
+    "apex_time": 9.17114939367421,
+    "start_time": 9.1082495311914,
+    "end_time": 9.23055481935242,
+    "confidence_percent": 34.8,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+    
+  },
+  {
+    "peak_id": "peak_11",
+    "apex_time": 9.684831603950496,
+    "start_time": 9.606206775846982,
+    "end_time": 9.763456432054008,
+    "confidence_percent": 3.0,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+    
+  },
+  {
+    "peak_id": "peak_12",
+    "apex_time": 10.333049631203902,
+    "start_time": 10.243941492686586,
+    "end_time": 10.404685585698214,
+    "confidence_percent": 39.2,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+    
+  },
+  {
+    "peak_id": "peak_13",
+    "apex_time": 10.972531566445808,
+    "start_time": 10.827512439054884,
+    "end_time": 11.094836854606829,
+    "confidence_percent": 69.8,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+    
+  },
+  {
+    "peak_id": "peak_14",
+    "apex_time": 12.7477054631829,
+    "start_time": 12.37904238029754,
+    "end_time": 13.081424178022257,
+    "confidence_percent": 80.7,
+    "peak_width_percent_from_parameter": 73.5,
+    "detection_threshold_percent_from_parameter": 50.6
+    
+  }
+]

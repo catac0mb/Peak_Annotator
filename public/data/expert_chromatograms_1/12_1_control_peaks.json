@@ -1,0 +1,119 @@
+[
+    {
+    "peak_id": "peak_1",
+    "apex_time": 1.1342432804100513,
+    "start_time": 0.8129836229528692,
+    "end_time": 1.4505856982122767,
+    "confidence_percent": 50,
+    "peak_width_percent_from_parameter": 31.4,
+    "detection_threshold_percent_from_parameter": 50.6
+    },
+  {
+    "peak_id": "peak_2",
+    "apex_time": 2.4946795849481185,
+    "start_time": 2.3897784723090387,
+    "end_time": 2.597941617702213,
+    "confidence_percent": 50,
+    "peak_width_percent_from_parameter": 20.8,
+    "detection_threshold_percent_from_parameter": 50.6
+  },
+  {
+    "peak_id": "peak_3",
+    "apex_time": 3.1535896987123393,
+    "start_time": 3.0716357044630582,
+    "end_time": 3.2355436929616204,
+    "confidence_percent": 1.5,
+    "peak_width_percent_from_parameter": 16.3,
+    "detection_threshold_percent_from_parameter": 50.6
+  },
+  {
+    "peak_id": "peak_4",
+    "apex_time": 3.8797020877609705,
+    "start_time": 3.8321687710963874,
+    "end_time": 3.9272354044255535,
+    "confidence_percent": 28.3,
+    "peak_width_percent_from_parameter": 9.5,
+    "detection_threshold_percent_from_parameter": 50.6
+  },
+  {
+    "peak_id": "peak_5",
+    "apex_time": 4.43043292911614,
+    "start_time": 4.327170896362046,
+    "end_time": 4.5353340417552195,
+    "confidence_percent": 23.4,
+    "peak_width_percent_from_parameter": 20.8,
+    "detection_threshold_percent_from_parameter": 50.6
+    },
+  {
+    "peak_id": "peak_6",
+    "apex_time": 5.44174521815227,
+    "start_time": 5.122124640580073,
+    "end_time": 5.758087635954495,
+    "confidence_percent": 67.8,
+    "peak_width_percent_from_parameter": 36.3,
+    "detection_threshold_percent_from_parameter": 50.6
+  },
+  {
+    "peak_id": "peak_7",
+    "apex_time": 7.166057257157145,
+    "start_time": 7.131636579572447,
+    "end_time": 7.202117014626829,
+    "confidence_percent": 55.8,
+    "peak_width_percent_from_parameter": 7.0,
+    "detection_threshold_percent_from_parameter": 50.6
+  },
+  {
+    "peak_id": "peak_8",
+    "apex_time": 8.008544318039755,
+    "start_time": 7.923312164020503,
+    "end_time": 8.088859232404051,
+    "confidence_percent": 74.4,
+    "peak_width_percent_from_parameter": 16.5,
+    "detection_threshold_percent_from_parameter": 50.6
+  },
+  {
+    "peak_id": "peak_9",
+    "apex_time": 8.7559647455932,
+    "start_time": 8.719904988123515,
+    "end_time": 8.787107263407927,
+    "confidence_percent": 65.5,
+    "peak_width_percent_from_parameter": 16.5,
+    "detection_threshold_percent_from_parameter": 50.6
+  },
+  {
+    "peak_id": "peak_10",
+    "apex_time": 9.891847105888237,
+    "start_time": 9.857426428303539,
+    "end_time": 9.92790686335792,
+    "confidence_percent": 66.5,
+    "peak_width_percent_from_parameter": 25.8,
+    "detection_threshold_percent_from_parameter": 50.6
+  },
+  {
+    "peak_id": "peak_11",
+    "apex_time": 10.411435429428678,
+    "start_time": 10.329481435179398,
+    "end_time": 10.49338942367796,
+    "confidence_percent": 1.5,
+    "peak_width_percent_from_parameter": 16.3,
+    "detection_threshold_percent_from_parameter": 50.6
+  },
+  {
+    "peak_id": "peak_12",
+    "apex_time": 11.23917077134642,
+    "start_time": 11.117878859857482,
+    "end_time": 11.355545443180398,
+    "confidence_percent": 37.8,
+    "peak_width_percent_from_parameter": 16.3,
+    "detection_threshold_percent_from_parameter": 50.6
+  },
+  {
+    "peak_id": "peak_13",
+    "apex_time": 12.548795599449932,
+    "start_time": 12.50126228278535,
+    "end_time": 12.596328916114516,
+    "confidence_percent": 19.8,
+    "peak_width_percent_from_parameter": 16.3,
+    "detection_threshold_percent_from_parameter": 50.6
+  }
+]
