@@ -353,21 +353,20 @@ function ThresholdBar({ label, pct, width: barWidth = 180, tickLabel = "threshol
   );
 }
 
-// ── ApexTrack comparison bars (user_toggle condition) ──
-// The peaks were NOT detected by ApexTrack. These two bars show how the selected
-// peak compares with the Peak Width and Detection Threshold that ApexTrack
-// automatically chooses for this chromatogram (signed % from each setting).
+// ── ApexTrack parameter bars (user_toggle condition) ──
+// Two bars, Empower/ApexTrack style: how far the selected peak sits from the
+// Peak Width parameter and from the Detection Threshold parameter.
 function ApexTrackBars({ apexTrack, width = 260 }) {
   if (!apexTrack || (apexTrack.peakWidth == null && apexTrack.detectionThreshold == null)) {
-    return <div style={{ fontSize: 11, color: "#94a3b8" }}>No ApexTrack comparison data for this peak.</div>;
+    return <div style={{ fontSize: 11, color: "#94a3b8" }}>No ApexTrack parameter data for this peak.</div>;
   }
   return (
     <>
       <div style={{ fontSize: 10, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>
-        Compared with ApexTrack’s automatic settings for this chromatogram
+        ApexTrack parameters — how far this peak is from each one
       </div>
-      {apexTrack.peakWidth != null && <ThresholdBar label="Peak Width" pct={apexTrack.peakWidth} width={width} tickLabel="ApexTrack setting" />}
-      {apexTrack.detectionThreshold != null && <ThresholdBar label="Detection Threshold" pct={apexTrack.detectionThreshold} width={width} tickLabel="ApexTrack threshold" />}
+      {apexTrack.peakWidth != null && <ThresholdBar label="Peak Width" pct={apexTrack.peakWidth} width={width} tickLabel="peak width parameter" />}
+      {apexTrack.detectionThreshold != null && <ThresholdBar label="Detection Threshold" pct={apexTrack.detectionThreshold} width={width} tickLabel="detection threshold" />}
     </>
   );
 }
@@ -401,13 +400,13 @@ function ToggleSwitch({ label, sub, on, onClick, track, highlight }) {
   );
 }
 
-function DisplayToggleBar({ confOn, barsOn, onToggle, highlight = null, trackPrefix = "toggle", barsSub = "Selected peak vs. ApexTrack’s Peak Width & Threshold" }) {
+function DisplayToggleBar({ confOn, barsOn, onToggle, highlight = null, trackPrefix = "toggle" }) {
   return (
     <div style={{ background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "8px 20px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
       <span style={{ fontSize: 11, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: 0.4 }}>AI display options</span>
       <ToggleSwitch label="AI confidence" sub="Colored badges & confidence scores"
         on={confOn} onClick={() => onToggle("confidence")} track={`${trackPrefix}_confidence`} highlight={highlight === "confidence" || highlight === "both"} />
-      <ToggleSwitch label="Threshold bars" sub={barsSub}
+      <ToggleSwitch label="Threshold bars" sub="Peak width & detection threshold (selected peak)"
         on={barsOn} onClick={() => onToggle("bars")} track={`${trackPrefix}_bars`} highlight={highlight === "bars" || highlight === "both"} />
       <span style={{ fontSize: 11, color: "#94a3b8" }}>Turn either one on or off at any time.</span>
     </div>
@@ -687,14 +686,9 @@ function createTracker() {
     annotationSnapshots: [],
 
     // ── Display toggles (user_toggle condition only) ──
-    // One entry per click on a display toggle switch during the real task.
-    // Each entry: { display: "confidence_icons"|"threshold_bars", action: "enabled"|"disabled",
-    //               timestampIso, timeMs, msIntoChromatogram, chromIdx, chromPosition, chromName,
-    //               feature: "confidence"|"bars", on, displayStateAfter, selectedPeakId }
+    // One entry per click on a display toggle switch.
+    // Each entry: { timeMs, chromIdx, feature: "confidence"|"bars", on, selectedPeakId }
     displayToggleLog: [],
-    // Same, for clicks made inside the tutorial (kept separate because the
-    // tutorial requires participants to flip the switches).
-    tutorialDisplayToggleLog: [],
   };
 }
 
@@ -936,20 +930,12 @@ const DATA_URL = "https://catac0mb.github.io/Peak_Annotator/data";
 //   expert_chromatograms/
 //     manifest.json        — JSON array of chromatogram names, e.g. ["chrom_A","chrom_B","chrom_C","chrom_D"]
 //     <name>.csv           — the signal: two columns, time and intensity (header row, e.g. "t,Ct")
-//     <name>_peaks.json    — the AI-detected peaks + how each compares with ApexTrack's settings (see parseApexTrackPeaksJSON)
+//     <name>_peaks.json    — the ApexTrack detections (see parseApexTrackPeaksJSON)
 //
 // A manifest entry may also include a subfolder ("chrom_A/chrom_A"), in which
 // case the files are read from expert_chromatograms/chrom_A/chrom_A.csv etc.
 const EXPERT_DATA_URL = `${DATA_URL}/expert_chromatograms`;
 const EXPERT_MAX_CHROMS = 4;
-
-// Both expert-study conditions: AI peaks start as location markers, with
-// separate on/off switches for AI confidence and the threshold bars.
-//   user_toggle          — bars compare each peak with ApexTrack's Peak Width / Detection Threshold
-//   user_toggle_features — the original five threshold bars (prominence, width, height, S/N, area)
-//                          (prominence, width, height, S/N, peak area)
-const TOGGLE_CONDITIONS = ["user_toggle", "user_toggle_features"];
-const isToggleCondition = (m) => TOGGLE_CONDITIONS.includes(m);
 
 // Parses <name>_peaks.json — one object per detected peak, nothing else needed:
 //   {
@@ -958,33 +944,13 @@ const isToggleCondition = (m) => TOGGLE_CONDITIONS.includes(m);
 //     "start_time": 0.813,                                // required
 //     "end_time": 1.451,                                  // required
 //     "confidence_percent": 64.3,                         // required (0–100)
-//     "peak_width_percent_from_parameter": 31.4,          // required: signed % difference from the Peak Width ApexTrack chose for this chromatogram
-//     "detection_threshold_percent_from_parameter": 50.6, // user_toggle: signed % difference from the Detection Threshold ApexTrack chose for this chromatogram
-//
-//     // user_toggle_features: signed % above (+) or below (−) each detection
-//     // threshold — the same fields as the original explanation files. Include the ones you have;
-//     // checks left out are simply not shown.
-//     "prominence_percent_above_threshold": 85.0,
-//     "width_percent_above_threshold": 40.0,
-//     "height_percent_above_threshold": 120.0,
-//     "snr_percent_above_threshold": -15.0,
-//     "area_percent_above_threshold": 60.0
+//     "peak_width_percent_from_parameter": 31.4,          // required: signed % distance of this peak's width from the Peak Width parameter
+//     "detection_threshold_percent_from_parameter": 50.6  // required: signed % distance of this peak from the Detection Threshold parameter
 //   }
-// A file can hold both sets of fields, so one data folder serves both conditions.
 // Positive % = above the parameter, negative = below. Returns the same
 // { peaks, explanations } shape as parseExplanationsJSON so the rest of the
 // app is unchanged; each explanation carries `apexTrack` instead of the
 // five-criteria `thresholds`.
-// Field names for the five threshold bars (user_toggle_features). The first
-// name in each list is the one to use; the others are accepted too.
-const FEATURE_JSON_KEYS = {
-  prominence: ["prominence_percent_above_threshold"],
-  width:      ["width_percent_above_threshold"],
-  height:     ["height_percent_above_threshold"],
-  snr:        ["snr_percent_above_threshold", "signal_to_noise_percent_above_threshold", "s_n_percent_above_threshold"],
-  area:       ["area_percent_above_threshold", "peak_area_percent_above_threshold"],
-};
-
 function parseApexTrackPeaksJSON(text) {
   let arr;
   try { arr = JSON.parse(text); } catch { return { peaks: [], explanations: [] }; }
@@ -999,22 +965,16 @@ function parseApexTrackPeaksJSON(text) {
     if (isNaN(conf) && !isNaN(num(e.confidence))) conf = num(e.confidence) <= 1 ? num(e.confidence) * 100 : num(e.confidence);
     const pw = num(e.peak_width_percent_from_parameter);
     const dt = num(e.detection_threshold_percent_from_parameter);
-    // user_toggle_features: signed % above/below each detection threshold (any subset)
-    let thresholds = null;
-    for (const [k, keys] of Object.entries(FEATURE_JSON_KEYS)) {
-      const v = keys.map(kk => num(e[kk])).find(x => !isNaN(x));
-      if (v !== undefined) { if (!thresholds) thresholds = {}; thresholds[k] = v; }
-    }
     peaks.push({ id: e.peak_id || `peak_${i + 1}`, apex, signal: 0, start, end, confidence: isNaN(conf) ? null : Math.round(conf) });
     explanations.push({
-      feature: "", counterfactual: "", params: null, thresholds,
+      feature: "", counterfactual: "", params: null, thresholds: null,
       apexTrack: { peakWidth: isNaN(pw) ? null : pw, detectionThreshold: isNaN(dt) ? null : dt },
     });
   });
   return { peaks, explanations };
 }
 
-async function loadExpertDatasets(baseUrl = EXPERT_DATA_URL, { requireFeatures = false } = {}) {
+async function loadExpertDatasets(baseUrl = EXPERT_DATA_URL) {
   const base = baseUrl.replace(/\/+$/, "");
   const manifestRes = await fetch(`${base}/manifest.json`);
   if (!manifestRes.ok) throw new Error(`Could not load ${base}/manifest.json (HTTP ${manifestRes.status}).`);
@@ -1029,13 +989,6 @@ async function loadExpertDatasets(baseUrl = EXPERT_DATA_URL, { requireFeatures =
     const data = parseChromatogramCSV(await csvRes.text());
     if (data.length === 0) throw new Error(`${name}.csv parsed to 0 data points — check the file format.`);
     const { peaks, explanations } = parseApexTrackPeaksJSON(await peaksRes.text());
-    if (requireFeatures) {
-      const missing = peaks.filter((_, i) => !explanations[i].thresholds).map(p => p.id);
-      if (missing.length === peaks.length && peaks.length) {
-        throw new Error(`${name}_peaks.json has no detection-check values (e.g. "height_percent_above_threshold", "snr_percent_above_threshold", "area_percent_above_threshold") — they are needed for this condition.`);
-      }
-      if (missing.length) console.warn(`[data] ${name}: no detection-check values for ${missing.join(", ")} — their bars will be empty.`);
-    }
     const baseName = name.split("/").pop();
     datasets.push({ name: `expert_chromatograms/${name}.csv`, baseName, data, peaks, groundTruth: [], explanations });
   }
@@ -1052,8 +1005,8 @@ function WelcomeScreen({ vizMode, onStart }) {
     setLoading(true);
     try {
       // user_toggle (Empower / ApexTrack-style) uses its own 4-chromatogram set
-      const datasets = isToggleCondition(vizMode)
-        ? await loadExpertDatasets(EXPERT_DATA_URL, { requireFeatures: vizMode === "user_toggle_features" })
+      const datasets = vizMode === "user_toggle"
+        ? await loadExpertDatasets(EXPERT_DATA_URL)
         : await loadDatasetsFromURLs(DATA_URL);
       const shuffled = [...datasets];
       for (let i = shuffled.length - 1; i > 0; i--) {
@@ -1177,7 +1130,7 @@ const TUTORIAL_EXPLANATIONS = [
     counterfactual: "If prominence dropped by 76%, this peak would no longer be detected.",
     params: null,
     thresholds: { prominence: 320, width: 180, height: 270, snr: 285, area: 350 },
-    // user_toggle: % difference from the Peak Width / Detection Threshold ApexTrack would choose
+    // user_toggle (ApexTrack): % distance from the Peak Width / Detection Threshold parameters
     apexTrack: { peakWidth: 140, detectionThreshold: 310 },
   },
   {
@@ -1192,21 +1145,19 @@ const TUTORIAL_EXPLANATIONS = [
     counterfactual: "If prominence dropped by just 8%, this detection would fail. This is a borderline detection.",
     params: null,
     thresholds: { prominence: 8, width: 5, height: 12, snr: -55, area: -80 },
-    // narrow noise blip: much narrower than ApexTrack's Peak Width setting, only just over its threshold
+    // narrow noise blip: much narrower than the Peak Width setting, only just over the threshold
     apexTrack: { peakWidth: -60, detectionThreshold: 9 },
   },
 ];
 
-function TutorialScreen({ vizMode, onDismiss, onDisplayToggle }) {
+function TutorialScreen({ vizMode, onDismiss }) {
   const [step, setStep] = useState(0);
   const [completedSteps, setCompletedSteps] = useState(new Set());
 
   const isAICondition = vizMode !== "none" && vizMode !== "no_ai";
   // user_toggle: confidence + threshold bars start hidden; the participant
   // switches each one on/off individually with the display toggles.
-  const isToggleMode = isToggleCondition(vizMode);
-  // user_toggle_features: the bars are the five original detection-threshold bars, not ApexTrack settings
-  const isFeatureBars = vizMode === "user_toggle_features";
+  const isToggleMode = vizMode === "user_toggle";
   const [tutConfOn, setTutConfOn] = useState(false);
   const [tutBarsOn, setTutBarsOn] = useState(false);
   // Per-step toggle-action flags (reset on step change, like the others below)
@@ -1215,20 +1166,13 @@ function TutorialScreen({ vizMode, onDismiss, onDisplayToggle }) {
   const [barsTurnedOn, setBarsTurnedOn] = useState(false);
   const [barsTurnedOff, setBarsTurnedOff] = useState(false);
   const [selectedWithBars, setSelectedWithBars] = useState(false);
-  const tutToggle = (feature) => {
-    const on = feature === "confidence" ? !tutConfOn : !tutBarsOn;
+  const tutToggle = useCallback((feature) => {
     if (feature === "confidence") {
-      setTutConfOn(on); if (on) setConfTurnedOn(true); else setConfTurnedOff(true);
+      setTutConfOn(prev => { const next = !prev; if (next) setConfTurnedOn(true); else setConfTurnedOff(true); return next; });
     } else {
-      setTutBarsOn(on); if (on) setBarsTurnedOn(true); else setBarsTurnedOff(true);
+      setTutBarsOn(prev => { const next = !prev; if (next) setBarsTurnedOn(true); else setBarsTurnedOff(true); return next; });
     }
-    onDisplayToggle?.({
-      feature, on,
-      tutorialStep: step + 1,
-      tutorialStepTitle: steps[step]?.title ?? null,
-      displayStateAfter: feature === "confidence" ? { confidence: on, bars: tutBarsOn } : { confidence: tutConfOn, bars: on },
-    });
-  };
+  }, []);
 
   // Tutorial chart state
   const tutData = useMemo(() => generateTutorialData(), []);
@@ -1588,7 +1532,7 @@ function TutorialScreen({ vizMode, onDismiss, onDisplayToggle }) {
         instruction: vizMode === "peaks_only"
           ? "Welcome, and thank you for participating!\n\nIn this study, you will be shown chromatograms \u2014 graphs that display chemical signal intensity over time. An AI algorithm has already attempted to detect peaks and their boundaries in each chromatogram.\n\nYour job is to review each AI-detected peak region and decide:\n\u2022 Is this actually a real peak, or a false detection?\n\u2022 If it is real, are the detected start and end boundaries correct?\n\nYou may edit a peak's boundaries, delete false detections, or add peaks the AI missed. Below is a practice chromatogram \u2014 complete each step before beginning the real task."
           : isToggleMode
-          ? (isFeatureBars ? "Welcome, and thank you for participating!\n\nIn this study, you will be shown chromatograms \u2014 graphs that display chemical signal intensity over time. An AI algorithm has already attempted to detect peaks and their boundaries in each chromatogram.\n\nYour job is to review each AI-detected peak and decide:\n\u2022 Is this actually a real peak, or a false detection?\n\u2022 If it is a real peak, are the detected start and end boundaries correct?\n\nAt first, the chart only shows WHERE the AI found peaks. Two extra pieces of information are available, and you can turn each one on or off whenever you like:\n\u2022 AI confidence \u2014 how sure the AI is about each detection\n\u2022 Threshold bars \u2014 how far each detected peak\u2019s prominence, width, height, signal-to-noise and peak area are above or below the thresholds set by a peak-detection algorithm.\n\nThis tutorial will show you how to use both switches. Below is a practice chromatogram with 3 AI detections \u2014 one is intentionally wrong. The tutorial will block you from progressing until you have completed the instructions for each step." : "Welcome, and thank you for participating!\n\nIn this study, you will be shown chromatograms \u2014 graphs that display chemical signal intensity over time. An AI algorithm has already attempted to detect peaks and their boundaries in each chromatogram.\n\nYour job is to review each AI-detected peak and decide:\n\u2022 Is this actually a real peak, or a false detection?\n\u2022 If it is a real peak, are the detected start and end boundaries correct?\n\nAt first, the chart only shows WHERE the AI found peaks. Two extra pieces of information are available, and you can turn each one on or off whenever you like:\n\u2022 AI confidence \u2014 how sure the AI is about each detection\n\u2022 Threshold bars \u2014 how each detected peak compares with the two settings (Peak Width and Detection Threshold) that ApexTrack, the peak-detection algorithm in Waters Empower software, automatically chooses for that chromatogram. The peaks were not found by ApexTrack \u2014 its settings are only used as a point of comparison.\n\nThis tutorial will show you how to use both switches. Below is a practice chromatogram with 3 AI detections \u2014 one is intentionally wrong. The tutorial will block you from progressing until you have completed the instructions for each step.")
+          ? "Welcome, and thank you for participating!\n\nIn this study, you will be shown chromatograms \u2014 graphs that display chemical signal intensity over time. An AI algorithm has already attempted to detect peaks and their boundaries in each chromatogram.\n\nYour job is to review each AI-detected peak and decide:\n\u2022 Is this actually a real peak, or a false detection?\n\u2022 If it is a real peak, are the detected start and end boundaries correct?\n\nThe AI detects peaks the same way as the ApexTrack algorithm in Waters Empower chromatography software, using two parameters: Peak Width and Detection Threshold.\n\nAt first, the chart only shows WHERE the AI found peaks. Two extra pieces of AI information are available, and you can turn each one on or off whenever you like:\n\u2022 AI confidence \u2014 how sure the AI is about each detection\n\u2022 Threshold bars \u2014 how far each detection is from the Peak Width and Detection Threshold parameters\n\nThis tutorial will show you how to use both switches. Below is a practice chromatogram with 3 AI detections \u2014 one is intentionally wrong. The tutorial will block you from progressing until you have completed the instructions for each step."
           :"Welcome, and thank you for participating!\n\nIn this study, you will be shown chromatograms \u2014 graphs that display chemical signal intensity over time. An AI algorithm has already attempted to detect peaks in each chromatogram.\n\nYour job is to review each AI-detected peak and decide:\n\u2022 Is this actually a real peak, or a false detection?\n\u2022 If it is a real peak, are the detected start and end boundaries correct?\n\nYou may edit a peak's boundaries if they are wrong, delete false detections, or add peaks the AI missed. Below is a practice chromatogram with 3 AI detections \u2014 one is intentionally wrong. Complete each step of this tutorial before beginning the real task. The tutorial will block you from progressing until you have completed the instructions for each step.",
         task: null,
         isDone: true,
@@ -1649,10 +1593,8 @@ function TutorialScreen({ vizMode, onDismiss, onDisplayToggle }) {
           highlightToggle: "confidence",
         });
         allSteps.push({
-          title: isFeatureBars ? "Understanding the Five Detection Criteria" : "ApexTrack\u2019s Settings: Peak Width and Detection Threshold",
-          instruction: isFeatureBars
-            ? "Imagine that the threshold bars come from a peak-detection algorithm that sets a threshold value for five properties of a peak. The bars show how far each detected peak\u2019s value is above or below each threshold.\n\nThe five properties are:\n\n\u2022 Prominence \u2014 how much the peak stands out above the signal around it. A prominent peak rises well above its neighbours; a low-prominence bump barely lifts above the baseline.\n\n\u2022 Width \u2014 how wide the peak is at half its height. Very narrow spikes are often electrical noise or artefacts.\n\n\u2022 Height \u2014 how high the peak apex rises above the baseline.\n\n\u2022 S/N (signal-to-noise) \u2014 how large the peak is compared with the random noise in the baseline around it. A low S/N means the \u201cpeak\u201d could just be noise.\n\n\u2022 Peak Area \u2014 the area under the peak above the baseline. A real peak has meaningful area; a narrow noise spike has very little, even if it looks tall.\n\nYou decide whether each detection is a real peak \u2014 the bars are extra information to help you.\n\nThe next step shows you how to read the bars."
-            : "The peaks on the chart were found by the AI, not by ApexTrack. As a point of comparison, the threshold bars show how each peak relates to the two settings that ApexTrack \u2014 the peak-detection algorithm in Waters Empower chromatography software \u2014 automatically chooses when it processes the chromatogram.\n\nApexTrack does not look for peaks in the signal itself. It computes the signal\u2019s second derivative (how sharply the signal curves), where every peak apex shows up as a peak of its own. Its two settings are:\n\n\u2022 Peak Width \u2014 the width of the smoothing filter ApexTrack uses to suppress noise when it computes the second derivative. Despite its name, it is not a measurement of any peak; it is called \u201cpeak width\u201d only because useful values tend to be about the same size as the widths of typical peaks at half their height. A larger setting smooths more, so narrow features, shoulders and closely spaced peaks can be smoothed away or merged; a smaller setting keeps narrow features, but also more noise.\n\n\u2022 Detection Threshold \u2014 the minimum height a peak\u2019s apex must reach in the second derivative for ApexTrack to count it as a peak. Because the Peak Width changes the second derivative, the two settings are linked: whether a peak clears the threshold also depends on the Peak Width.\n\nApexTrack picks both settings automatically for each chromatogram. The next step shows how each AI-detected peak compares with them.",
+          title: "ApexTrack Parameters",
+          instruction: "ApexTrack uses several parameters to detect peaks. The AI detects peaks the same way as ApexTrack, the peak-detection algorithm in Waters Empower chromatography software. Instead of waiting for the signal to rise above a flat baseline, ApexTrack measures the curvature of the signal (its second derivative) and finds each peak at its apex \u2014 the point where the signal bends downward most sharply. Two parameters decide which apexes count as peaks:\n\n\u2022 Peak Width (in seconds) \u2014 the expected width of a peak, measured at 5% of its height. ApexTrack uses it to set how much it smooths the chromatogram before measuring curvature. A feature much narrower than the Peak Width setting looks more like a noise spike than a real chromatographic peak; a feature close to or wider than it looks like a typical peak.\n\n\u2022 Detection Threshold (in \u00b5V) \u2014 based on the peak-to-peak noise of the baseline. ApexTrack converts it into a curvature threshold: an apex is accepted as a peak only if its curvature rises above that threshold. A peak that clears the threshold by a wide margin stands well out of the noise; one that only just clears it is borderline.\n\nIn Empower, both parameters can be set automatically from the data (AutoPeak Width and AutoThreshold). The threshold bars in the next step show how far each detected peak is from these two parameters.",
           task: null,
           isDone: true,
           feedback: null,
@@ -1660,9 +1602,7 @@ function TutorialScreen({ vizMode, onDismiss, onDisplayToggle }) {
         });
         allSteps.push({
           title: "Turning the Threshold Bars On and Off",
-          instruction: isFeatureBars
-            ? "Click the \u201cThreshold bars\u201d switch in the AI DISPLAY OPTIONS bar to turn it on. Then click a peak in the peak list at the bottom of the screen \u2014 a panel in the bottom right shows five horizontal bars, one for each property. You may need to scroll down to see them.\n\nThe tick mark in the centre of each bar is the algorithm\u2019s threshold for that property. The dot shows how far this peak\u2019s value is from the threshold, as a percentage:\n\u2022 Blue dot to the right \u2192 the value is above the threshold. The further right, the larger the margin.\n\u2022 Orange dot to the left \u2192 the value is below the threshold. The further left, the further it falls short.\n\nFor example, the detection at t\u22489.80 is only slightly above the threshold for prominence (8%), width (5%) and height (12%), and below it for S/N (55%) and peak area (80%).\n\nWhen you are done, click the \u201cThreshold bars\u201d switch again to hide the bars. This switch only controls the bars \u2014 it does not affect the confidence display."
-            : "Click the \u201cThreshold bars\u201d switch in the AI DISPLAY OPTIONS bar to turn it on. Then click a peak in the peak list at the bottom of the screen \u2014 a panel in the bottom right shows two horizontal bars: one for Peak Width and one for Detection Threshold. You may need to scroll down to see them.\n\nThe tick mark in the centre of each bar is the value ApexTrack automatically chose for this chromatogram. The dot shows how this peak compares with that value, as a percentage:\n\u2022 Peak Width bar \u2014 a dot to the right means the peak is wider than ApexTrack\u2019s Peak Width setting; a dot to the left means it is narrower. Features much narrower than the setting are the kind ApexTrack\u2019s smoothing would suppress, such as noise spikes.\n\u2022 Detection Threshold bar \u2014 a dot to the right means the peak\u2019s apex in the second derivative is above ApexTrack\u2019s Detection Threshold; a dot to the left means it is below it, so ApexTrack would not have counted it as a peak with its own settings. A dot just right of centre means it only barely clears the threshold.\n\nThe bars do not tell you whether a peak is real \u2014 they only show how it compares with ApexTrack\u2019s automatic settings. For example, the detection at t\u22489.80 is 60% narrower than ApexTrack\u2019s Peak Width setting and only 9% above its Detection Threshold, so it is weak by both measures.\n\nWhen you are done, click the \u201cThreshold bars\u201d switch again to hide the bars. This switch only controls the bars \u2014 it does not affect the confidence display.",
+          instruction: "Click the \u201cThreshold bars\u201d switch in the AI DISPLAY OPTIONS bar to turn it on. Then click a peak in the peak list at the bottom of the screen \u2014 a panel in the bottom right shows two horizontal bars: one for Peak Width and one for Detection Threshold. You may need to scroll down to see them.\n\nThe tick mark in the centre of each bar is the parameter itself. The dot shows how far this peak is from that parameter, as a percentage:\n\u2022 Peak Width bar \u2014 a blue dot to the right means this peak is wider than the Peak Width setting; an orange dot to the left means it is narrower. A peak much narrower than the setting may just be a noise spike.\n\u2022 Detection Threshold bar \u2014 a dot to the right means the peak\u2019s apex clears the detection threshold; the further right, the more clearly it stands out from the baseline noise. A dot just right of centre means it only barely passed.\n\nA detection with both dots well to the right is more likely to be a real peak. For example, the detection at t\u22489.80 is 60% narrower than the Peak Width setting and only 9% above the Detection Threshold \u2014 it is borderline and probably noise.\n\nWhen you are done, click the \u201cThreshold bars\u201d switch again to hide the bars. This switch only controls the bars \u2014 it does not affect the confidence display.",
           task: "Turn threshold bars ON, click a peak to view its bars, then turn the bars OFF",
           isDone: barsTurnedOn && selectedWithBars && barsTurnedOff,
           feedback: !barsTurnedOn
@@ -1670,9 +1610,7 @@ function TutorialScreen({ vizMode, onDismiss, onDisplayToggle }) {
             : !selectedWithBars
             ? (tutBarsOn ? "Threshold bars are ON. Now click one of the AI-detected peaks in the peak list to see its bars." : "Turn the threshold bars back on, then click a peak in the list.")
             : !barsTurnedOff
-            ? (isFeatureBars
-              ? "Those bars show how far the selected peak is above or below each threshold. Now click the “Threshold bars” switch again to turn them off."
-              : "Those bars compare the selected peak with ApexTrack’s Peak Width and Detection Threshold settings. Now click the “Threshold bars” switch again to turn them off.")
+            ? "Those are the Peak Width and Detection Threshold bars for the selected peak. Now click the “Threshold bars” switch again to turn them off."
             : "You turned the threshold bars on and off. You can use this switch at any time.",
           feedbackOk: barsTurnedOn && selectedWithBars && barsTurnedOff,
           highlightToggle: "bars",
@@ -1832,7 +1770,7 @@ function TutorialScreen({ vizMode, onDismiss, onDisplayToggle }) {
     allSteps.push({
       title: "You're Ready!",
       instruction: isToggleMode
-        ? (isFeatureBars ? "Great job completing the tutorial! To summarize your task:\n\nFor each chromatogram, review every AI-detected peak and ask yourself: “Is this a real peak? Are its boundaries correct?”\n\n• If the peak is real and boundaries are correct — leave it as is\n• If the peak is real but boundaries are wrong — drag the handles to fix them\n• If the detection is not a real peak — click the red ✕ on its pill to delete it\n• If the AI missed a real peak — add it with “+ Add Peak”\n• Deleted peaks appear grayed out — click them to restore if needed\n\nThe AI DISPLAY OPTIONS bar above the chart is always available. The real task starts with both switches Off (location markers only). Click “AI confidence” to show or hide the confidence colors and scores, and click “Threshold bars” to show or hide how far the selected peak is above or below each detection threshold — each switch works on its own, and you can change them at any time.\n\nPlease annotate EVERY chromatogram. When you are done with one, click the large blue “Finish This Chromatogram & Start Next” button in the bar at the top of the screen. On the last chromatogram, that button becomes a green “Finish & Submit” button, which submits your annotations and ends the study. You cannot go back to a previous chromatogram, so take your time on each one.\n\nClick “Start Annotating” when you’re ready!" : "Great job completing the tutorial! To summarize your task:\n\nFor each chromatogram, review every AI-detected peak and ask yourself: “Is this a real peak? Are its boundaries correct?”\n\n• If the peak is real and boundaries are correct — leave it as is\n• If the peak is real but boundaries are wrong — drag the handles to fix them\n• If the detection is not a real peak — click the red ✕ on its pill to delete it\n• If the AI missed a real peak — add it with “+ Add Peak”\n• Deleted peaks appear grayed out — click them to restore if needed\n\nThe AI DISPLAY OPTIONS bar above the chart is always available. The real task starts with both switches Off (location markers only). Click “AI confidence” to show or hide the confidence colors and scores, and click “Threshold bars” to show or hide how the selected peak compares with ApexTrack’s automatic Peak Width and Detection Threshold settings — each switch works on its own, and you can change them at any time.\n\nPlease annotate EVERY chromatogram. When you are done with one, click the large blue “Finish This Chromatogram & Start Next” button in the bar at the top of the screen. On the last chromatogram, that button becomes a green “Finish & Submit” button, which submits your annotations and ends the study. You cannot go back to a previous chromatogram, so take your time on each one.\n\nClick “Start Annotating” when you’re ready!")
+        ? "Great job completing the tutorial! To summarize your task:\n\nFor each chromatogram, review every AI-detected peak and ask yourself: “Is this a real peak? Are its boundaries correct?”\n\n• If the peak is real and boundaries are correct — leave it as is\n• If the peak is real but boundaries are wrong — drag the handles to fix them\n• If the detection is not a real peak — click the red ✕ on its pill to delete it\n• If the AI missed a real peak — add it with “+ Add Peak”\n• Deleted peaks appear grayed out — click them to restore if needed\n\nThe AI DISPLAY OPTIONS bar above the chart is always available. The real task starts with both switches Off (location markers only). Click “AI confidence” to show or hide the confidence colors and scores, and click “Threshold bars” to show or hide the Peak Width and Detection Threshold bars for the selected peak — each switch works on its own, and you can change them at any time.\n\nPlease annotate EVERY chromatogram. When you are done with one, click the large blue “Finish This Chromatogram & Start Next” button in the bar at the top of the screen. On the last chromatogram, that button becomes a green “Finish & Submit” button, which submits your annotations and ends the study. You cannot go back to a previous chromatogram, so take your time on each one.\n\nClick “Start Annotating” when you’re ready!"
         : isAICondition
         ?"Great job completing the tutorial! To summarize your task:\n\nFor each chromatogram, review every AI-detected peak and ask yourself: \u201cIs this a real peak? Are its boundaries correct?\u201d\n\n\u2022 If the peak is real and boundaries are correct \u2014 leave it as is\n\u2022 If the peak is real but boundaries are wrong \u2014 drag the handles to fix them\n\u2022 If the detection is not a real peak \u2014 click the red \u2715 on its pill to delete it\n\u2022 If the AI missed a real peak \u2014 add it with \u201c+ Add Peak\u201d\n\u2022 Deleted peaks appear grayed out \u2014 click them to restore if needed\n\nWhen you are done with a chromatogram, click the large blue \u201cFinish This Chromatogram & Start Next\u201d button in the bar at the top of the screen to move on to the next one.\n\n\u26a0\ufe0f IMPORTANT \u2014 YOU DO NOT HAVE TO ANNOTATE EVERY CHROMATOGRAM. There are many chromatograms in this study, and you are not expected to get through all of them. As soon as you no longer feel like annotating, you should stop and move on to the surveys \u2014 this is completely fine and expected.\n\nTo do that, click the grey button in that same top bar, just to the left of the blue \u201cFinish This Chromatogram & Start Next\u201d button. It reads \u201cI don\u2019t feel like annotating anymore \u2014 take me to the surveys.\u201d You can click it at any time, after any chromatogram, to jump straight to the surveys.\n\nYou\u2019ll then complete three short surveys. Click \u201cStart Annotating\u201d when you\u2019re ready!"
         : "Great job completing the tutorial! To summarize your task:\n\nFor each chromatogram, find every peak and label its start, apex, and end boundaries using \u201c+ Add Peak\u201d and the drag handles.\n\nA peak is a region where the signal rises clearly above the baseline and then returns. Use zoom and pan to inspect the chromatogram carefully.\n\n\u2022 Use the \u2715 button on a peak pill to delete it, or select it and click Delete Peak Annotation\n\u2022 Deleted peaks appear grayed out \u2014 click them to restore if needed\n\nWhen you are done with a chromatogram, click the large blue \u201cFinish This Chromatogram & Start Next\u201d button in the bar at the top of the screen to move on to the next one.\n\n\u26a0\ufe0f IMPORTANT \u2014 YOU DO NOT HAVE TO ANNOTATE EVERY CHROMATOGRAM. There are many chromatograms in this study, and you are not expected to get through all of them. As soon as you no longer feel like annotating, you should stop and move on to the surveys \u2014 this is completely fine and expected.\n\nTo do that, click the grey button in that same top bar, just to the left of the blue \u201cFinish This Chromatogram & Start Next\u201d button. It reads \u201cI don\u2019t feel like annotating anymore \u2014 take me to the surveys.\u201d You can click it at any time, after any chromatogram, to jump straight to the surveys.\n\nYou\u2019ll then complete three short surveys. Click \u201cStart Annotating\u201d when you\u2019re ready!",
@@ -2051,7 +1989,7 @@ function TutorialScreen({ vizMode, onDismiss, onDisplayToggle }) {
 
       {/* ── Display toggles (user_toggle only) — individual on/off switches ── */}
       {isToggleMode && showChart && (
-        <DisplayToggleBar confOn={tutConfOn} barsOn={tutBarsOn} onToggle={tutToggle} barsSub={isFeatureBars ? "Detection margins (selected peak)" : undefined}
+        <DisplayToggleBar confOn={tutConfOn} barsOn={tutBarsOn} onToggle={tutToggle}
           highlight={current.highlightToggle ?? null} trackPrefix="tutorial_toggle" />
       )}
 
@@ -2319,16 +2257,13 @@ function TutorialScreen({ vizMode, onDismiss, onDisplayToggle }) {
                       const origIdx = TUTORIAL_PEAKS.findIndex(p => p.id === selPk.id);
                       const ex = origIdx >= 0 ? TUTORIAL_EXPLANATIONS[origIdx] : null;
                       if (isToggleMode) {
-                        // user_toggle: ApexTrack comparison; user_toggle_features: the original five threshold bars
-                        if (!isFeatureBars) {
-                          if (!showBars || !ex) return null;
-                          return (
-                            <div style={{ padding: "10px 16px", borderBottom: "1px solid #e5e7eb", background: "#fafafa" }}>
-                              <ApexTrackBars apexTrack={ex.apexTrack} width={360} />
-                            </div>
-                          );
-                        }
-                        // user_toggle_features: same five bars as the threshold_bars condition (below)
+                        // Empower / ApexTrack-style: Peak Width + Detection Threshold bars
+                        if (!showBars || !ex) return null;
+                        return (
+                          <div style={{ padding: "10px 16px", borderBottom: "1px solid #e5e7eb", background: "#fafafa" }}>
+                            <ApexTrackBars apexTrack={ex.apexTrack} width={360} />
+                          </div>
+                        );
                       }
                       const tutThresholds = showBars && ex ? (ex.thresholds || parseThresholdPcts(ex.feature)) : null;
                       const txt = hasExplanation && ex ? (vizMode === "normal_explain" ? ex.feature : ex.counterfactual) : null;
@@ -2338,9 +2273,9 @@ function TutorialScreen({ vizMode, onDismiss, onDisplayToggle }) {
                           {txt && <div style={{ fontSize: 11, color: "#475569", lineHeight: 1.5, marginBottom: tutThresholds ? 8 : 0 }}>{txt}</div>}
                           {tutThresholds && <>
                             <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 6 }}>Detection margins:</div>
-                            {tutThresholds.prominence != null && <ThresholdBar label="Prominence" pct={tutThresholds.prominence} width={360} />}
-                            {tutThresholds.width != null && <ThresholdBar label="Width" pct={tutThresholds.width} width={360} />}
-                            {tutThresholds.height != null && <ThresholdBar label="Height" pct={tutThresholds.height} width={360} />}
+                            <ThresholdBar label="Prominence" pct={tutThresholds.prominence} width={360} />
+                            <ThresholdBar label="Width" pct={tutThresholds.width} width={360} />
+                            <ThresholdBar label="Height" pct={tutThresholds.height} width={360} />
                             {tutThresholds.snr != null && <ThresholdBar label="S/N (Signal-to-Noise)" pct={tutThresholds.snr} width={360} />}
                             {tutThresholds.area != null && <ThresholdBar label="Peak Area" pct={tutThresholds.area} width={360} />}
                           </>}
@@ -2396,8 +2331,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
   // user_toggle condition: confidence display and threshold bars each start
   // OFF (location markers only) and are switched on/off individually by the
   // participant. The choice persists across chromatograms.
-  const isToggleMode = isToggleCondition(vizMode);
-  const isFeatureBars = vizMode === "user_toggle_features";
+  const isToggleMode = vizMode === "user_toggle";
   const [confToggleOn, setConfToggleOn] = useState(false);
   const [barsToggleOn, setBarsToggleOn] = useState(false);
   const displayStateRef = useRef({ confidence: false, bars: false });
@@ -3147,8 +3081,6 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
             confidenceToggleCount: evs.filter(ev => ev.feature === "confidence").length,
             barsToggleCount: evs.filter(ev => ev.feature === "bars").length,
             displayStateAtFinish: fin?.displayState ?? null,
-            // enable/disable clicks made while this chromatogram was open
-            events: evs.map(ev => ({ display: ev.display, action: ev.action, timestampIso: ev.timestampIso, timeMs: ev.timeMs, msIntoChromatogram: ev.msIntoChromatogram })),
           };
         })() : null,
       };
@@ -3180,10 +3112,6 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
       sessionId: prolificParams?.sessionId ?? null,
       visualizationMode: vizMode,
       dataSet: isToggleMode ? "expert_chromatograms" : "data",
-      // expert study: "detection_checks" (user_toggle_features) or "apextrack_settings" (user_toggle)
-      thresholdBarsType: isToggleMode ? (isFeatureBars ? "detection_checks" : "apextrack_settings") : null,
-      // Wall-clock start of the session — every *timeMs field is measured from this
-      sessionStartedAtIso: new Date(T.sessionStart).toISOString(),
       sessionDurationMs: now,
       // Randomized presentation order — lets you reconstruct which
       // chromatogram each participant saw at each position.
@@ -3262,14 +3190,8 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
           barsToggleCount: T.displayToggleLog.filter(ev => ev.feature === "bars").length,
           everTurnedOnConfidence: T.displayToggleLog.some(ev => ev.feature === "confidence" && ev.on),
           everTurnedOnBars: T.displayToggleLog.some(ev => ev.feature === "bars" && ev.on),
-          // ms since session start of the first time each display was enabled (null = never)
-          confidenceFirstEnabledMs: T.displayToggleLog.find(ev => ev.feature === "confidence" && ev.on)?.timeMs ?? null,
-          barsFirstEnabledMs: T.displayToggleLog.find(ev => ev.feature === "bars" && ev.on)?.timeMs ?? null,
           intervals: toggleIntervals,
-          // Every enable/disable click during the real task, in order (see createTracker)
           log: T.displayToggleLog,
-          // Clicks made inside the tutorial (required practice), kept separate
-          tutorialLog: T.tutorialDisplayToggleLog,
         };
       })() : null,
     };
@@ -3347,20 +3269,10 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
     const after = { ...cur, [feature]: on };
     displayStateRef.current = after;
     if (feature === "confidence") setConfToggleOn(on); else setBarsToggleOn(on);
-    const nowAbs = Date.now();
-    const cIdx = currentIdxRef.current;
-    const visit = T.chromVisits[T.chromVisits.length - 1];
     T.displayToggleLog.push({
-      display: feature === "confidence" ? "confidence_icons" : "threshold_bars",
-      action: on ? "enabled" : "disabled",
-      timestampIso: new Date(nowAbs).toISOString(),       // wall-clock time of the click
-      timeMs: nowAbs - T.sessionStart,                     // ms since the session started
-      msIntoChromatogram: visit && visit.chromIdx === cIdx ? (nowAbs - T.sessionStart) - visit.enter : null,
-      chromIdx: cIdx,
-      chromPosition: cIdx + 1,                             // 1-based position shown to the participant
-      chromName: datasets[cIdx]?.name ?? null,
-      feature, on,                                         // compact form used for the on-time calculations
-      displayStateAfter: after,
+      timeMs: Date.now() - T.sessionStart,
+      chromIdx: currentIdxRef.current,
+      feature, on,
       selectedPeakId: selectedPeakId ?? null,
     });
     pushInteraction(T, `${on ? "show" : "hide"}_${feature}`, currentIdxRef.current,
@@ -3391,12 +3303,11 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
   const selTxt  = selHasExplanation ? (selEx ? (vizMode === "normal_explain" ? selEx.feature : selEx.counterfactual) : "No explanation available.") : null;
   // For threshold_bars: use pre-parsed thresholds from JSON if available,
   // fall back to regex-parsing the feature explanation text.
-  // (user_toggle_features shows the same five bars, from the expert peaks files)
-  const selThresholds = (showBars && selEx && (!isToggleMode || isFeatureBars))
+  const selThresholds = (showBars && selEx && !isToggleMode)
     ? (selEx.thresholds || parseThresholdPcts(selEx.feature))
     : null;
   // user_toggle: ApexTrack Peak Width / Detection Threshold margins instead
-  const selApexTrack = (showBars && selEx && isToggleMode && !isFeatureBars) ? (selEx.apexTrack || null) : null;
+  const selApexTrack = (showBars && selEx && isToggleMode) ? (selEx.apexTrack || null) : null;
   const selIsUserPeak = selPeak?.id?.startsWith("user_");
 
   // Task banner copy (condition-aware)
@@ -3713,17 +3624,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
 
   return (
     <div style={{ fontFamily: "'IBM Plex Sans',system-ui,sans-serif", background: "#f0f2f5", minHeight: "100vh" }}>
-      {showTutorial && <TutorialScreen vizMode={vizMode} onDismiss={() => setShowTutorial(false)}
-        onDisplayToggle={isToggleMode ? (ev) => {
-          const nowAbs = Date.now();
-          T.tutorialDisplayToggleLog.push({
-            display: ev.feature === "confidence" ? "confidence_icons" : "threshold_bars",
-            action: ev.on ? "enabled" : "disabled",
-            timestampIso: new Date(nowAbs).toISOString(),
-            timeMs: nowAbs - T.sessionStart,
-            ...ev,
-          });
-        } : undefined} />}
+      {showTutorial && <TutorialScreen vizMode={vizMode} onDismiss={() => setShowTutorial(false)} />}
       {showTutorial ? null : (<>
 
       {/* ── Quit-study confirmation modal ── */}
@@ -3896,7 +3797,7 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
 
       {/* ── Display toggles (user_toggle only) — individual on/off switches ── */}
       {isToggleMode && (
-        <DisplayToggleBar confOn={confToggleOn} barsOn={barsToggleOn} onToggle={toggleDisplay} barsSub={isFeatureBars ? "Detection margins (selected peak)" : undefined} />
+        <DisplayToggleBar confOn={confToggleOn} barsOn={barsToggleOn} onToggle={toggleDisplay} />
       )}
 
       {/* ── Full-width chart card ── */}
@@ -4214,9 +4115,9 @@ function AnnotationScreen({ datasets, vizMode, userName, prolificParams, onStudy
                   <div style={{ fontSize: 10, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>
                     Detection margins — how far each value is from its threshold
                   </div>
-                  {selThresholds.prominence != null && <ThresholdBar label="Prominence" pct={selThresholds.prominence} width={260} />}
-                  {selThresholds.width != null && <ThresholdBar label="Width" pct={selThresholds.width} width={260} />}
-                  {selThresholds.height != null && <ThresholdBar label="Height" pct={selThresholds.height} width={260} />}
+                  <ThresholdBar label="Prominence" pct={selThresholds.prominence} width={260} />
+                  <ThresholdBar label="Width" pct={selThresholds.width} width={260} />
+                  <ThresholdBar label="Height" pct={selThresholds.height} width={260} />
                   {selThresholds.snr != null && <ThresholdBar label="S/N (Signal-to-Noise)" pct={selThresholds.snr} width={260} />}
                   {selThresholds.area != null && <ThresholdBar label="Peak Area" pct={selThresholds.area} width={260} />}
                 </div>
@@ -4946,11 +4847,11 @@ export default function App() {
   // Parse all URL params once on load
   const { prolificParams, urlCondition } = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
-    // "user_toggle" / "user_toggle_features": AI peaks start as plain location markers; the participant
+    // "user_toggle": AI peaks start as plain location markers; the participant
     // can switch the confidence display and the threshold bars on/off
     // individually. This condition has no early "skip to surveys" exit and no
     // post-task surveys (NASA-TLX, engagement feedback, demographics).
-    const VALID_CONDITIONS = ["no_ai", "peaks_only", "confidence", "threshold_bars", "bars_only", "user_toggle", "user_toggle_features"];
+    const VALID_CONDITIONS = ["no_ai", "peaks_only", "confidence", "threshold_bars", "bars_only", "user_toggle"];
     const c = params.get("condition");
     return {
       prolificParams: {
@@ -5022,22 +4923,6 @@ function StudyFlow({ session }) {
     return acc;
   }, {});
 
-  // Enable/disable timing columns for the flat summary (user_toggle only).
-  // displayToggleTimeline is one readable cell, e.g.
-  //   "threshold_bars enabled @ 2026-10-14T15:02:11.204Z (12.3s, chrom 1); confidence_icons enabled @ …"
-  const toggleFlatColumns = (annResults) => {
-    const dt = annResults.displayToggles;
-    if (!dt) return {};
-    return {
-      sessionStartedAtIso: annResults.sessionStartedAtIso,
-      confidenceFirstEnabledMs: dt.confidenceFirstEnabledMs,
-      barsFirstEnabledMs: dt.barsFirstEnabledMs,
-      displayToggleTimeline: dt.log
-        .map(ev => `${ev.display} ${ev.action} @ ${ev.timestampIso} (${(ev.timeMs / 1000).toFixed(1)}s, chrom ${ev.chromPosition})`)
-        .join("; "),
-    };
-  };
-
   // user_toggle condition: no NASA-TLX, engagement/feedback, or demographics
   // surveys — annotation results are uploaded directly and the participant
   // goes straight to the completion screen.
@@ -5069,7 +4954,6 @@ function StudyFlow({ session }) {
         barsOnFraction: dt?.barsOnFraction ?? null,
         confidenceToggleCount: dt?.confidenceToggleCount ?? null,
         barsToggleCount: dt?.barsToggleCount ?? null,
-        ...toggleFlatColumns(annResults),
         ...buildChromFlatColumns(annResults),
       },
     };
@@ -5081,7 +4965,7 @@ function StudyFlow({ session }) {
 
   const handleAnnotationDone = (results) => {
     setAnnotationResults(results);
-    if (isToggleCondition(session.vizMode)) { finishWithoutSurveys(results); return; }
+    if (session.vizMode === "user_toggle") { finishWithoutSurveys(results); return; }
     setPhase("nasa_tlx");
   };
 
@@ -5119,7 +5003,6 @@ function StudyFlow({ session }) {
         condition: annResults.visualizationMode,
         quitEarly: true,
         quitPhase: phase,
-        ...toggleFlatColumns(annResults),
       },
     };
 
