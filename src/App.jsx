@@ -4739,7 +4739,8 @@ function DemographicsSurvey({ onComplete, onQuit }) {
 //  Completion Screen
 // ══════════════════════════════════════════
 // status: "uploading" | "success" | "error"
-function CompletionScreen({ status, onRetry }) {
+// expertStudy (user_toggle): no Prolific code — just confirms the upload.
+function CompletionScreen({ status, onRetry, expertStudy = false }) {
   const PROLIFIC_CODE = "CEJ155DD";
   return (
     <div style={{ fontFamily: "'IBM Plex Sans',system-ui,sans-serif", background: "linear-gradient(160deg,#f0f4ff 0%,#f8f9fb 40%,#faf5ff 100%)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -4751,12 +4752,20 @@ function CompletionScreen({ status, onRetry }) {
             <h1 style={{ fontSize: 24, fontWeight: 800, color: "#1e293b", marginBottom: 8 }}>Saving your results…</h1>
             <p style={{ fontSize: 15, color: "#64748b", lineHeight: 1.6 }}>
               Please <strong>do not close this tab</strong> while your data is being uploaded.
-              Your completion code will appear here once saving is complete.
+              {!expertStudy && " Your completion code will appear here once saving is complete."}
             </p>
           </>
         )}
 
-        {status === "success" && (
+        {status === "success" && expertStudy && (
+          <>
+            <div style={{ fontSize: 56, marginBottom: 16, color: "#059669" }}>&#10003;</div>
+            <h1 style={{ fontSize: 26, fontWeight: 800, color: "#059669", marginBottom: 12 }}>Your results were uploaded.</h1>
+            <p style={{ fontSize: 17, color: "#334155", lineHeight: 1.6, margin: 0 }}>You may proceed to the next part.</p>
+          </>
+        )}
+
+        {status === "success" && !expertStudy && (
           <>
             <div style={{ fontSize: 56, marginBottom: 16 }}>&#10003;</div>
             <h1 style={{ fontSize: 28, fontWeight: 800, color: "#059669", marginBottom: 8 }}>Study Complete</h1>
@@ -4787,13 +4796,13 @@ function CompletionScreen({ status, onRetry }) {
             </button>
             <p style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.5 }}>
               If this keeps failing, please contact us at{" "}
-              <a href="mailto:jcaitlin@wustl.edu" style={{ color: "#1e40af", fontWeight: 600 }}>jcaitlin@wustl.edu</a>{" "}
-              and we will ensure you receive your payment.
+              <a href="mailto:jcaitlin@wustl.edu" style={{ color: "#1e40af", fontWeight: 600 }}>jcaitlin@wustl.edu</a>
+              {expertStudy ? "." : " and we will ensure you receive your payment."}
             </p>
           </>
         )}
 
-        {status === "success" && (
+        {status === "success" && !expertStudy && (
           <div style={{ marginTop: 16, padding: "16px 20px", background: "#f8fafc", borderRadius: 10, border: "1px solid #e5e7eb" }}>
             <p style={{ fontSize: 13, color: "#475569", lineHeight: 1.6, margin: 0 }}>
               If you have any questions or comments about this study, please contact us at{" "}
@@ -5258,6 +5267,7 @@ function StudyFlow({ session }) {
     <CompletionScreen
       status={uploadStatus}
       onRetry={() => finalResultsRef.current && doUpload(finalResultsRef.current)}
+      expertStudy={isToggleCondition(session.vizMode)}
     />
   );
 }
